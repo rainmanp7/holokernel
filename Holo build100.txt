@@ -1,0 +1,312 @@
+#!/bin/bash
+
+# Create log file with timestamp
+LOGFILE=~/os_install_log_$(date +%Y-%m-%d_%H-%M-%S).log
+
+# Function to log messages with timestamp
+log() {
+    local level="$1"
+    shift
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [$level] $@" | tee -a "$LOGFILE"
+}
+
+# Log info
+log_info() {
+    log "INFO" "$@"
+}
+
+# Log success
+log_success() {
+    log "SUCCESS" "$@"
+}
+
+# Log error
+log_error() {
+    log "ERROR" "$@"
+}
+
+# Cleanup function for cross-compiler build failures
+cleanup_cross_compiler() {
+    log_error "Cleaning up cross-compiler build due to failure..."
+    sudo rm -rf /usr/local/i686-elf
+    sudo rm -rf /usr/local/lib/gcc/i686-elf
+    sudo rm -f /usr/local/bin/i686-elf-*
+    find ~/os-toolchain -mindepth 1 -maxdepth 1 -type d -name "build-*" -exec rm -rf {} + 2>/dev/null
+}
+
+# Function to check if a command exists
+command_exists() {
+    command -v "$1" &> /dev/null
+}
+
+log_info "🔧 Installing Holographic Entity OS dependencies on Ubuntu..."
+
+# Update package list
+if sudo apt update; then
+    log_success "Package list updated successfully."
+else
+    log_error "Failed to update package list."
+    exit 1
+fi
+
+# Install essential tools if not already installed
+log_info "Checking essential tools..."
+declare -a essentials=("gcc" "g++" "make" "git" "qemu-system-x86" "nasm" "ninja-build" "curl")
+missing_essentials=()
+for tool in "${essentials[@]}"; do
+    if ! command_exists "$tool"; then
+        missing_essentials+=("$tool")
+        log_info "$tool is missing."
+    else
+        log_success "$tool already installed!"
+    fi
+done
+
+if [ ${#missing_essentials[@]} -ne 0 ]; then
+    log_info "⚙️ Installing missing essential tools: ${missing_essentials[*]}"
+    if sudo apt install -y "${missing_essentials[@]}"; then
+        log_success "Missing essential tools installed."
+    else
+        log_error "Failed to install missing essential tools."
+        exit 1
+    fi
+else
+    log_success "All essential tools already installed!"
+fi
+
+# Check if i686-elf-gcc is already available
+if command_exists "i686-elf-gcc"; then
+    log_success "✅ i686-elf-gcc already installed! Skipping cross-compiler build."
+else
+    log_info "⚙️ i686-elf-gcc not found. Installing i686-elf cross-compiler..."
+
+    # Install dependencies for building GCC if not already installed
+    log_info "Checking cross-compiler build dependencies..."
+    declare -a build_tools=("g++" "curl" "bison" "flex" "texinfo" "make" "gcc")
+    declare -a build_libs=("libgmp-dev" "libmpc-dev" "libmpfr-dev" "libisl-dev" "zlib1g-dev")
+    
+    missing_tools=()
+    for tool in "${build_tools[@]}"; do
+        if ! command_exists "$tool" && ! dpkg -l | grep -q "ii  $tool"; then
+            missing_tools+=("$tool")
+            log_info "$tool is missing."
+        else
+            log_success "$tool already installed!"
+        fi
+    done
+
+    missing_libs=()
+    for lib in "${build_libs[@]}"; do
+        if ! dpkg -l | grep -q "ii  $lib"; then
+            missing_libs+=("$lib")
+            log_info "$lib is missing."
+        else
+            log_success "$lib already installed!"
+        fi
+    done
+
+    if [ ${#missing_tools[@]} -ne 0 ] || [ ${#missing_libs[@]} -ne 0 ]; then
+        log_info "⚙️ Installing build dependencies..."
+        if sudo apt install -y "${missing_tools[@]}" "${missing_libs[@]}"; then
+            log_success "Cross-compiler dependencies installed."
+        else
+            log_error "Failed to install cross-compiler dependencies."
+            exit 1
+        fi
+    else
+        log_success "All cross-compiler dependencies already installed!"
+    fi
+
+    # Create a directory for the toolchain
+    if mkdir -p ~/os-toolchain; then
+        log_success "Toolchain directory created or already exists."
+    else
+        log_error "Failed to create toolchain directory."
+        exit 1
+    fi
+    cd ~/os-toolchain || { log_error "Failed to change to toolchain directory."; exit 1; }
+
+    # Download binutils (using a more reliable version)
+    BINUTILS_VERSION="2.40"
+    if [ ! -f "binutils-${BINUTILS_VERSION}.tar.gz" ]; then
+        log_info "📥 Downloading binutils-${BINUTILS_VERSION}..."
+        if curl -LO https://ftp.gnu.org/gnu/binutils/binutils-${BINUTILS_VERSION}.tar.gz; then
+            log_success "binutils-${BINUTILS_VERSION} downloaded."
+        else
+            log_error "Failed to download binutils."
+            exit 1
+        fi
+    else
+        log_success "✅ binutils-${BINUTILS_VERSION}.tar.gz already downloaded!"
+    fi
+
+    # Download GCC (using a more reliable version)
+    GCC_VERSION="12.2.0"
+    if [ ! -f "gcc-${GCC_VERSION}.tar.gz" ]; then
+        log_info "📥 Downloading gcc-${GCC_VERSION}..."
+        if curl -LO https://ftp.gnu.org/gnu/gcc/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.gz; then
+            log_success "gcc-${GCC_VERSION} downloaded."
+        else
+            log_error "Failed to download GCC."
+            exit 1
+        fi
+    else
+        log_success "✅ gcc-${GCC_VERSION}.tar.gz already downloaded!"
+    fi
+
+    # Verify downloads (basic check for file existence and non-zero size)
+    if [[ ! -s binutils-${BINUTILS_VERSION}.tar.gz ]]; then
+        log_error "binutils-${BINUTILS_VERSION}.tar.gz is empty or not downloaded."
+        exit 1
+    fi
+    if [[ ! -s gcc-${GCC_VERSION}.tar.gz ]]; then
+        log_error "gcc-${GCC_VERSION}.tar.gz is empty or not downloaded."
+        exit 1
+    fi
+
+    # Extract if directories don't exist
+    if [ ! -d "binutils-${BINUTILS_VERSION}" ]; then
+        log_info "📦 Extracting binutils-${BINUTILS_VERSION}..."
+        if tar -xzf binutils-${BINUTILS_VERSION}.tar.gz; then
+            log_success "binutils-${BINUTILS_VERSION} extracted."
+        else
+            log_error "Failed to extract binutils."
+            exit 1
+        fi
+    else
+        log_success "✅ binutils-${BINUTILS_VERSION} already extracted!"
+    fi
+
+    if [ ! -d "gcc-${GCC_VERSION}" ]; then
+        log_info "📦 Extracting gcc-${GCC_VERSION}..."
+        if tar -xzf gcc-${GCC_VERSION}.tar.gz; then
+            log_success "gcc-${GCC_VERSION} extracted."
+        else
+            log_error "Failed to extract GCC."
+            exit 1
+        fi
+    else
+        log_success "✅ gcc-${GCC_VERSION} already extracted!"
+    fi
+
+    # Calculate jobs for ~95% CPU (leave at least one core free)
+    JOBS=$(nproc)
+    if (( JOBS > 1 )); then
+        JOBS=$((JOBS - 1))
+    fi
+    log_info "Using $JOBS parallel jobs for building (to keep system responsive)."
+
+    # Build binutils
+    log_info "🔨 Building binutils..."
+    if mkdir -p build-binutils; then
+        cd build-binutils || { log_error "Failed to change to build-binutils."; exit 1; }
+        if [ ! -f "Makefile" ]; then
+            if ../binutils-${BINUTILS_VERSION}/configure --target=i686-elf --prefix=/usr/local --disable-werror --disable-nls --disable-shared --disable-threads; then
+                log_success "binutils configured."
+            else
+                log_error "binutils configure failed."
+                cleanup_cross_compiler
+                exit 1
+            fi
+        else
+            log_success "✅ binutils already configured!"
+        fi
+        if make -j$JOBS; then
+            log_success "binutils built."
+        else
+            log_error "binutils make failed."
+            cleanup_cross_compiler
+            exit 1
+        fi
+        if sudo make install; then
+            log_success "binutils installed."
+        else
+            log_error "binutils install failed."
+            cleanup_cross_compiler
+            exit 1
+        fi
+        cd ..
+    else
+        log_error "Failed to create build-binutils directory."
+        cleanup_cross_compiler
+        exit 1
+    fi
+
+    # Add cross-compiler to PATH
+    export PATH="/usr/local/bin:$PATH"
+    log_info "Added /usr/local/bin to PATH for cross-compiler tools"
+
+    # Build GCC
+    log_info "🔨 Building GCC..."
+    if mkdir -p build-gcc; then
+        cd build-gcc || { log_error "Failed to change to build-gcc."; exit 1; }
+        if [ ! -f "Makefile" ]; then
+            if ../gcc-${GCC_VERSION}/configure --target=i686-elf --prefix=/usr/local --disable-werror --disable-nls --enable-languages=c --without-headers --disable-hosted-libstdcxx; then
+                log_success "GCC configured."
+            else
+                log_error "GCC configure failed."
+                cleanup_cross_compiler
+                exit 1
+            fi
+        else
+            log_success "✅ GCC already configured!"
+        fi
+        if make all-gcc -j$JOBS; then
+            log_success "GCC all-gcc built."
+        else
+            log_error "GCC make all-gcc failed."
+            cleanup_cross_compiler
+            exit 1
+        fi
+        if make all-target-libgcc -j$JOBS; then
+            log_success "GCC all-target-libgcc built."
+        else
+            log_error "GCC make all-target-libgcc failed."
+            cleanup_cross_compiler
+            exit 1
+        fi
+        if sudo make install-gcc; then
+            log_success "GCC install-gcc completed."
+        else
+            log_error "GCC install-gcc failed."
+            cleanup_cross_compiler
+            exit 1
+        fi
+        if sudo make install-target-libgcc; then
+            log_success "GCC install-target-libgcc completed."
+        else
+            log_error "GCC install-target-libgcc failed."
+            cleanup_cross_compiler
+            exit 1
+        fi
+    else
+        log_error "Failed to create build-gcc directory."
+        cleanup_cross_compiler
+        exit 1
+    fi
+
+    # Verify the cross-compiler is installed
+    if command_exists "i686-elf-gcc"; then
+        log_success "✅ i686-elf-gcc installed successfully!"
+    else
+        log_error "❌ i686-elf-gcc installation failed - not found in PATH"
+        cleanup_cross_compiler
+        exit 1
+    fi
+fi
+
+# Go back to home
+cd ~ || log_info "Already in home directory."
+
+log_success "✅ All tools installed!"
+log_info "🔧 You're ready to build your OS."
+log_info "Installation log saved to: $LOGFILE"
+
+# Add permanent PATH setting to bashrc if not already present
+if ! grep -q "/usr/local/bin" ~/.bashrc; then
+    echo 'export PATH="/usr/local/bin:$PATH"' >> ~/.bashrc
+    log_info "Added /usr/local/bin to your ~/.bashrc for future sessions"
+    log_info "Run: source ~/.bashrc to apply to current session"
+fi
+
+log_info "To build your OS, run: make"
