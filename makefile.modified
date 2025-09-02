@@ -1,0 +1,52 @@
+ASM = nasm
+CC = gcc
+LD = ld
+OBJCOPY = objcopy
+QEMU = qemu-system-i386
+
+ASMFLAGS = -f bin
+ASMFLAGS_ELF = -f elf32
+CFLAGS = -m32 -c -ffreestanding -fno-pie -nostdlib -nostdinc -O1 -Wall -Wextra
+LDFLAGS = -m elf_i386 -T linker.ld -nostdlib
+
+BOOTLOADER = boot.bin
+KERNEL_ELF = kernel.elf
+KERNEL_BIN = kernel.bin
+DISK_IMAGE = emergeos.img
+
+BOOT_SRC = boot.asm
+KERNEL_ENTRY_SRC = kernel_entry.asm
+KERNEL_SRC = holographic_kernel.c
+
+KERNEL_ENTRY_OBJ = kernel_entry.o
+KERNEL_OBJ = holographic_kernel.o
+
+all: $(DISK_IMAGE)
+
+$(BOOTLOADER): $(BOOT_SRC)
+	$(ASM) $(ASMFLAGS) $< -o $@
+
+$(KERNEL_ENTRY_OBJ): $(KERNEL_ENTRY_SRC)
+	$(ASM) $(ASMFLAGS_ELF) $< -o $@
+
+$(KERNEL_OBJ): $(KERNEL_SRC)
+	$(CC) $(CFLAGS) $< -o $@
+
+$(KERNEL_ELF): $(KERNEL_ENTRY_OBJ) $(KERNEL_OBJ)
+	$(LD) $(LDFLAGS) -o $@ $^
+
+$(KERNEL_BIN): $(KERNEL_ELF)
+	$(OBJCOPY) -O binary $< $@
+
+$(DISK_IMAGE): $(BOOTLOADER) $(KERNEL_BIN)
+	dd if=/dev/zero of=$@ bs=512 count=2880
+	dd if=$(BOOTLOADER) of=$@ conv=notrunc
+	dd if=$(KERNEL_BIN) of=$@ seek=1 conv=notrunc
+
+run: $(DISK_IMAGE)
+	$(QEMU) -fda $<
+
+clean:
+	rm -f *.bin *.o *.elf *.img
+
+.PHONY: all run clean

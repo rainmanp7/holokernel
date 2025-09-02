@@ -1,0 +1,44 @@
+name: Build HoloKernel
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install cross-compiler toolchain
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential nasm qemu-system-i386
+        
+        # Install i686-elf cross-compiler
+        wget https://github.com/lordmilko/i686-elf-tools/releases/download/7.1.0/i686-elf-tools-linux.tar.bz2
+        tar -xf i686-elf-tools-linux.tar.bz2
+        sudo cp -r i686-elf-tools/bin/* /usr/local/bin/
+        sudo cp -r i686-elf-tools/lib/* /usr/local/lib/
+        sudo cp -r i686-elf-tools/libexec/* /usr/local/libexec/
+        
+        # Verify installation
+        i686-elf-gcc --version
+    
+    - name: Build kernel
+      run: |
+        make clean
+        make all
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: holokernel-build
+        path: |
+          kernel.bin
+          disk.img
+          *.o
