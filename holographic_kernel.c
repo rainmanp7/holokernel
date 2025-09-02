@@ -1,4 +1,4 @@
-#include <stdint.h>
+#include "kernel_types.h"
 
 // Enhanced Holographic Memory Configuration
 #define HOLOGRAPHIC_DIMENSIONS 512
