@@ -1,0 +1,40 @@
+name: Build NASM Tool
+
+on:
+  push:
+    paths:
+      - 'tools/nasm/source/**'
+  workflow_dispatch:
+
+jobs:
+  build-nasm:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential
+    
+    - name: Build NASM
+      run: |
+        cd tools/nasm/source
+        ./configure --prefix=$GITHUB_WORKSPACE/tools/nasm/compiled
+        make -j$(nproc)
+        make install
+    
+    - name: Commit compiled NASM back to repository
+      run: |
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+        git add tools/nasm/compiled/
+        git commit -m "Add compiled NASM tool" || echo "No changes to commit"
+        git push || echo "Push failed, continuing"
+    
+    - name: Upload NASM artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: nasm-compiled
+        path: tools/nasm/compiled/
