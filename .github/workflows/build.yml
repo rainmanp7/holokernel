@@ -43,15 +43,18 @@ jobs:
           make -j$(nproc)
           make install
           
-          # Download and build gcc (minimal for kernel development)
+          # Download and build gcc (complete for kernel development)
           cd /tmp/cross-compiler
           wget https://ftp.gnu.org/gnu/gcc/gcc-12.2.0/gcc-12.2.0.tar.xz
           tar -xf gcc-12.2.0.tar.xz
           mkdir gcc-build
           cd gcc-build
-          ../gcc-12.2.0/configure --target=i686-elf --prefix=$GITHUB_WORKSPACE/cross-compiler --disable-nls --enable-languages=c --without-headers
+          ../gcc-12.2.0/configure --target=i686-elf --prefix=$GITHUB_WORKSPACE/cross-compiler --disable-nls --enable-languages=c,c++ --without-headers --disable-shared --disable-multilib --disable-decimal-float --disable-threads --disable-libatomic --disable-libgomp --disable-libquadmath --disable-libssp --disable-libvtv --disable-libstdcxx
           make -j$(nproc) all-gcc all-target-libgcc
           make install-gcc install-target-libgcc
+          
+          # Ensure libexec directory is copied (contains cc1)
+          sudo cp -r $GITHUB_WORKSPACE/cross-compiler/libexec/* /usr/local/libexec/ 2>/dev/null || sudo mkdir -p /usr/local/libexec && sudo cp -r $GITHUB_WORKSPACE/cross-compiler/libexec/* /usr/local/libexec/
           
           # Copy to system location for current build
           sudo cp -r $GITHUB_WORKSPACE/cross-compiler/bin/* /usr/local/bin/
