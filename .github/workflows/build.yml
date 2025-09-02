@@ -17,17 +17,37 @@ jobs:
     - name: Install cross-compiler toolchain
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential nasm qemu-system-i386
+        sudo apt-get install -y build-essential nasm qemu-system-i386 gcc-multilib
         
-        # Install i686-elf cross-compiler
-        wget https://github.com/lordmilko/i686-elf-tools/releases/download/7.1.0/i686-elf-tools-linux.tar.bz2
-        tar -xf i686-elf-tools-linux.tar.bz2
-        sudo cp -r i686-elf-tools/bin/* /usr/local/bin/
-        sudo cp -r i686-elf-tools/lib/* /usr/local/lib/
-        sudo cp -r i686-elf-tools/libexec/* /usr/local/libexec/
+        # Build i686-elf cross-compiler from source using a simpler approach
+        # Install dependencies for building cross-compiler
+        sudo apt-get install -y wget make libgmp3-dev libmpfr-dev libmpc-dev flex bison
+        
+        # Create temporary directory
+        mkdir -p /tmp/cross-compiler
+        cd /tmp/cross-compiler
+        
+        # Download and build binutils
+        wget https://ftp.gnu.org/gnu/binutils/binutils-2.40.tar.xz
+        tar -xf binutils-2.40.tar.xz
+        mkdir binutils-build
+        cd binutils-build
+        ../binutils-2.40/configure --target=i686-elf --prefix=/usr/local --disable-nls --disable-werror
+        make -j$(nproc)
+        sudo make install
+        
+        # Download and build gcc (minimal for kernel development)
+        cd /tmp/cross-compiler
+        wget https://ftp.gnu.org/gnu/gcc/gcc-12.2.0/gcc-12.2.0.tar.xz
+        tar -xf gcc-12.2.0.tar.xz
+        mkdir gcc-build
+        cd gcc-build
+        ../gcc-12.2.0/configure --target=i686-elf --prefix=/usr/local --disable-nls --enable-languages=c --without-headers
+        make -j$(nproc) all-gcc all-target-libgcc
+        sudo make install-gcc install-target-libgcc
         
         # Verify installation
-        i686-elf-gcc --version
+        /usr/local/bin/i686-elf-gcc --version
     
     - name: Build kernel
       run: |
