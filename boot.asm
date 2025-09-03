@@ -1,73 +1,65 @@
+; boot.asm
 [org 0x7c00]
 [bits 16]
-
 start:
     cli
     xor ax, ax
     mov ds, ax
     mov es, ax
     mov ss, ax
-    mov sp, 0x7c00        ; Stack grows downward from bootloader
+    mov sp, 0x9000        ; Safer stack (above bootloader, below kernel)
     sti
     
     ; Save boot drive
     mov [boot_drive], dl
     
-    ; Set video mode to 80x25 text
+    ; Set video mode (80x25 text)
     mov ax, 0x0003
     int 0x10
     
-    ; Display loading message
+    ; Print loading message
     mov si, boot_msg
     call print
     
-    ; Load kernel from disk
-    mov ax, 0x1000        ; ES:BX = 0x1000:0x0000
+    ; Load kernel
+    mov ax, HOLOGRAPHIC_KERNEL_OFFSET  ; Set ES segment to destination
     mov es, ax
-    xor bx, bx
-    mov al, HOLOGRAPHIC_KERNEL_SECTORS  ; Number of sectors to read
-    mov ch, 0x00          ; Cylinder 0
-    mov dh, 0x00          ; Head 0
-    mov cl, 0x01          ; Start from sector 1 (after boot sector) - FIXED
+    mov bx, 0x0000          ; Offset 0 in segment
+    mov dh, HOLOGRAPHIC_KERNEL_SECTORS
     mov dl, [boot_drive]
     call disk_load
     
-    ; Check if kernel was loaded successfully
-    jc disk_error
-    
-    ; Display success message
-    mov si, disk_ok_msg
-    call print
-    
-    ; Prepare for protected mode
-    cli
-    lgdt [gdt_descriptor]
+    ; Switch to protected mode before jumping to kernel
+    cli                     ; Disable interrupts
+    lgdt [gdt_descriptor]   ; Load GDT
     
     ; Enable protected mode
     mov eax, cr0
     or eax, 0x1
     mov cr0, eax
     
-    ; Far jump to flush pipeline and set CS
+    ; Far jump to flush pipeline and enter 32-bit mode
     jmp CODE_SEG:init_pm
 
 [bits 32]
 init_pm:
-    ; Initialize all data segments
+    ; Set up segment registers for protected mode
     mov ax, DATA_SEG
     mov ds, ax
+    mov ss, ax
     mov es, ax
     mov fs, ax
     mov gs, ax
-    mov ss, ax
     
     ; Set up stack
-    mov esp, 0x90000
+    mov ebp, 0x90000
+    mov esp, ebp
     
-    ; Jump to kernel entry point
+    ; Jump to kernel
     jmp 0x10000
 
-; Print function (16-bit real mode)
+[bits 16]
+
 print:
     pusha
 .print_loop:
@@ -81,26 +73,15 @@ print:
     popa
     ret
 
-; Disk load function with retries
 disk_load:
     pusha
-    mov di, 3              ; Retry count
-.retry:
     mov ah, 0x02
-    ; Parameters already set: al=sectors, ch=cylinder, dh=head, cl=sector, dl=drive
+    mov al, dh          ; Number of sectors to read
+    mov ch, 0x00        ; Cylinder 0
+    mov dh, 0x00        ; Head 0
+    mov cl, 0x02        ; Start from sector 2 (after boot sector)
     int 0x13
-    jnc .success
-    dec di
-    jz .error
-    ; Reset disk system before retry
-    mov ah, 0x00
-    int 0x13
-    jmp .retry
-.success:
-    popa
-    ret
-.error:
-    stc                    ; Set carry flag to indicate error
+    jc disk_error
     popa
     ret
 
@@ -110,41 +91,51 @@ disk_error:
     hlt
 
 ; Data
-boot_msg db "Loading Holographic Kernel...", 0x0D, 0x0A, 0
-disk_err_msg db "Disk read error!", 0x0D, 0x0A, 0
-disk_ok_msg db "Kernel loaded successfully!", 0x0D, 0x0A, 0
+boot_msg db "[BOOT] Loading Holographic Kernel...", 0x0D, 0x0A, 0
+disk_err_msg db "[ERR] Disk read failed!", 0x0D, 0x0A, 0
 boot_drive db 0
 
-; GDT
+; Constants
+HOLOGRAPHIC_KERNEL_OFFSET equ 0x1000  ; Kernel load address (segment)
+%ifndef HOLOGRAPHIC_KERNEL_SECTORS
+HOLOGRAPHIC_KERNEL_SECTORS equ 20     ; Default sectors for safety
+%endif
+
+
+; GDT (Global Descriptor Table) for protected mode
 gdt_start:
-    dq 0x0                 ; Null descriptor
+    ; Null descriptor (required)
+    dd 0x0
+    dd 0x0
 
 gdt_code:
-    dw 0xffff              ; Limit (0-15)
-    dw 0x0000              ; Base (0-15)
-    db 0x00                ; Base (16-23)
-    db 10011010b           ; Access byte
-    db 11001111b           ; Flags + Limit (16-19)
-    db 0x00                ; Base (24-31)
+    ; Code segment descriptor
+    dw 0xffff       ; Limit (bits 0-15)
+    dw 0x0          ; Base (bits 0-15)
+    db 0x0          ; Base (bits 16-23)
+    db 10011010b    ; Access byte: present, ring 0, code segment, executable, readable
+    db 11001111b    ; Flags: granularity, 32-bit, limit (bits 16-19)
+    db 0x0          ; Base (bits 24-31)
 
 gdt_data:
-    dw 0xffff              ; Limit (0-15)
-    dw 0x0000              ; Base (0-15)
-    db 0x00                ; Base (16-23)
-    db 10010010b           ; Access byte
-    db 11001111b           ; Flags + Limit (16-19)
-    db 0x00                ; Base (24-31)
+    ; Data segment descriptor
+    dw 0xffff       ; Limit (bits 0-15)
+    dw 0x0          ; Base (bits 0-15)
+    db 0x0          ; Base (bits 16-23)
+    db 10010010b    ; Access byte: present, ring 0, data segment, writable
+    db 11001111b    ; Flags: granularity, 32-bit, limit (bits 16-19)
+    db 0x0          ; Base (bits 24-31)
 
 gdt_end:
 
 gdt_descriptor:
-    dw gdt_end - gdt_start - 1
-    dd gdt_start
+    dw gdt_end - gdt_start - 1  ; Size of GDT
+    dd gdt_start                ; Address of GDT
 
+; Define segment selectors
 CODE_SEG equ gdt_code - gdt_start
 DATA_SEG equ gdt_data - gdt_start
 
-HOLOGRAPHIC_KERNEL_SECTORS equ 50
-
+; Boot signature
 times 510-($-$$) db 0
 dw 0xaa55
