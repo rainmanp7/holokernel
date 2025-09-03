@@ -1,6 +1,6 @@
-; boot.asm
 [org 0x7c00]
 [bits 16]
+
 start:
     cli
     xor ax, ax
@@ -13,44 +13,61 @@ start:
     ; Save boot drive
     mov [boot_drive], dl
     
-    ; Set video mode (80x25 text)
+    ; Set video mode to 80x25 text
     mov ax, 0x0003
     int 0x10
     
-    ; Print loading message
+    ; Display loading message
     mov si, boot_msg
     call print
     
-    ; Load kernel to 0x1000:0x0000 (physical address 0x10000)
-    mov ax, 0x1000
+    ; Load kernel from disk
+    mov ax, 0x1000        ; ES:BX = 0x1000:0x0000
     mov es, ax
-    xor bx, bx            ; ES:BX = 0x1000:0x0000
+    xor bx, bx
+    mov al, HOLOGRAPHIC_KERNEL_SECTORS  ; Number of sectors to read
+    mov ch, 0x00          ; Cylinder 0
+    mov dh, 0x00          ; Head 0
+    mov cl, 0x01          ; Start from sector 1 (after boot sector) - FIXED
+    mov dl, [boot_drive]
+    call disk_load
     
-    mov ah, 0x02          ; Read sector function
-    mov al, 20            ; Number of sectors to read
-    mov ch, 0             ; Cylinder 0
-    mov cl, 2             ; Sector 2 (first sector after bootloader)
-    mov dh, 0             ; Head 0
-    mov dl, [boot_drive]  ; Drive number
-    int 0x13
+    ; Check if kernel was loaded successfully
     jc disk_error
     
-    ; Print success message
-    mov si, load_success_msg
+    ; Display success message
+    mov si, disk_ok_msg
     call print
     
-    ; Switch to protected mode
+    ; Prepare for protected mode
     cli
     lgdt [gdt_descriptor]
     
+    ; Enable protected mode
     mov eax, cr0
     or eax, 0x1
     mov cr0, eax
     
-    ; Far jump to flush pipeline and load CS with 32-bit code segment
-    jmp 0x08:protected_mode_start
+    ; Far jump to flush pipeline and set CS
+    jmp CODE_SEG:init_pm
 
-; 16-bit print function
+[bits 32]
+init_pm:
+    ; Initialize all data segments
+    mov ax, DATA_SEG
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+    
+    ; Set up stack
+    mov esp, 0x90000
+    
+    ; Jump to kernel entry point
+    jmp 0x10000
+
+; Print function (16-bit real mode)
 print:
     pusha
 .print_loop:
@@ -64,48 +81,59 @@ print:
     popa
     ret
 
+; Disk load function with retries
+disk_load:
+    pusha
+    mov di, 3              ; Retry count
+.retry:
+    mov ah, 0x02
+    ; Parameters already set: al=sectors, ch=cylinder, dh=head, cl=sector, dl=drive
+    int 0x13
+    jnc .success
+    dec di
+    jz .error
+    ; Reset disk system before retry
+    mov ah, 0x00
+    int 0x13
+    jmp .retry
+.success:
+    popa
+    ret
+.error:
+    stc                    ; Set carry flag to indicate error
+    popa
+    ret
+
 disk_error:
     mov si, disk_err_msg
     call print
     hlt
 
-[bits 32]
-protected_mode_start:
-    ; Set up segment registers
-    mov ax, 0x10
-    mov ds, ax
-    mov es, ax
-    mov fs, ax
-    mov gs, ax
-    mov ss, ax
-    mov esp, 0x90000      ; Set up stack pointer
-    
-    ; Call the kernel main function
-    call 0x10000          ; Jump to kernel entry point
-    
-    ; Halt if kernel returns
-    cli
-    hlt
+; Data
+boot_msg db "Loading Holographic Kernel...", 0x0D, 0x0A, 0
+disk_err_msg db "Disk read error!", 0x0D, 0x0A, 0
+disk_ok_msg db "Kernel loaded successfully!", 0x0D, 0x0A, 0
+boot_drive db 0
 
-; GDT (Global Descriptor Table)
+; GDT
 gdt_start:
-    dq 0x0                ; Null descriptor
+    dq 0x0                 ; Null descriptor
 
 gdt_code:
-    dw 0xFFFF             ; Limit (0-15)
-    dw 0x0                ; Base (0-15)
-    db 0x0                ; Base (16-23)
-    db 0x9A               ; Access byte (code segment, ring 0)
-    db 0xCF               ; Flags + Limit (16-19)
-    db 0x0                ; Base (24-31)
+    dw 0xffff              ; Limit (0-15)
+    dw 0x0000              ; Base (0-15)
+    db 0x00                ; Base (16-23)
+    db 10011010b           ; Access byte
+    db 11001111b           ; Flags + Limit (16-19)
+    db 0x00                ; Base (24-31)
 
 gdt_data:
-    dw 0xFFFF             ; Limit (0-15)
-    dw 0x0                ; Base (0-15)
-    db 0x0                ; Base (16-23)
-    db 0x92               ; Access byte (data segment, ring 0)
-    db 0xCF               ; Flags + Limit (16-19)
-    db 0x0                ; Base (24-31)
+    dw 0xffff              ; Limit (0-15)
+    dw 0x0000              ; Base (0-15)
+    db 0x00                ; Base (16-23)
+    db 10010010b           ; Access byte
+    db 11001111b           ; Flags + Limit (16-19)
+    db 0x00                ; Base (24-31)
 
 gdt_end:
 
@@ -113,12 +141,10 @@ gdt_descriptor:
     dw gdt_end - gdt_start - 1
     dd gdt_start
 
-; Data
-boot_msg db "[BOOT] Loading Holographic Kernel...", 0x0D, 0x0A, 0
-load_success_msg db "[BOOT] Kernel loaded successfully!", 0x0D, 0x0A, 0
-disk_err_msg db "[ERR] Disk read failed!", 0x0D, 0x0A, 0
-boot_drive db 0
+CODE_SEG equ gdt_code - gdt_start
+DATA_SEG equ gdt_data - gdt_start
 
-; Boot signature
+HOLOGRAPHIC_KERNEL_SECTORS equ 50
+
 times 510-($-$$) db 0
 dw 0xaa55
