@@ -1,4 +1,3 @@
-/* linker.ld */
 ENTRY(_start)
 
 SECTIONS
@@ -13,8 +12,15 @@ SECTIONS
         *(.data)
     }
     
+    .rodata : {
+        *(.rodata)
+    }
+    
     .bss : {
+        _bss_start = .;
         *(.bss)
+        *(COMMON)
+        _bss_end = .;
     }
     
     /DISCARD/ : {
