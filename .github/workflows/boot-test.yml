@@ -1,0 +1,67 @@
+name: Boot Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: # Allows manual trigger
+
+jobs:
+  build-and-boot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y nasm gcc make qemu-system-i386
+
+    - name: Build Kernel and Disk Image
+      run: |
+        make clean
+        make all
+        ls -la emergeos.img kernel.bin boot.bin
+
+    - name: Run QEMU and Capture Serial Output
+      run: |
+        # Run QEMU headlessly, log serial output to a file
+        qemu-system-i386 \
+          -fda emergeos.img \
+          -serial file:serial.log \
+          -display none \
+          -monitor none \
+          -machine pc \
+          -d cpu_reset \
+          -no-reboot \
+          -no-shutdown \
+          -boot a \
+          -m 64M \
+          -accel off \
+          -nographic \
+          -timeout 60 &
+        
+        # Wait a moment for boot process
+        sleep 15
+        killall qemu-system-i386 || true
+
+        # Show what was printed over serial
+        cat serial.log || echo "No serial output captured"
+
+        # Save serial log as artifact
+        cp serial.log . || echo "Failed to copy log"
+
+    - name: Upload Serial Log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: serial-output
+        path: serial.log
+
+    - name: Success Check
+      run: |
+        grep -i "Kernel" serial.log && echo "✅ Boot successful!" || (echo "❌ No kernel message found" && exit 1)
