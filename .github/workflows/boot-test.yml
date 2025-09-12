@@ -16,6 +16,17 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v4
 
+    - name: Cache APT and Installed Tools
+      id: cache-tools
+      uses: actions/cache@v3
+      with:
+        path: |
+          /var/cache/apt/archives
+          /usr/bin/clang-format
+        key: ${{ runner.os }}-build-tools-${{ hashFiles('dependencies.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-build-tools-
+
     - name: Check and Install Dependencies
       run: |
         sudo apt-get update
@@ -41,7 +52,14 @@ jobs:
 
     - name: Fix Code Formatting Automatically
       run: |
-        sudo apt-get install -y clang-format
+        echo "Checking if clang-format is installed..."
+        if ! command -v clang-format &> /dev/null; then
+            echo "clang-format not found. Installing..."
+            sudo apt-get install -y clang-format
+        else
+            echo "✅ clang-format is already installed from cache."
+        fi
+        
         echo "Automatically fixing code formatting errors..."
         find . -name "*.c" -o -name "*.h" | xargs clang-format -i
         
