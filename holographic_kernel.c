@@ -11,7 +11,7 @@
 // Entity types
 typedef enum {
     ENTITY_CPU = 0,
-    ENTITY_MEMORY = 1, 
+    ENTITY_MEMORY = 1,
     ENTITY_DEVICE = 2,
     ENTITY_FILESYSTEM = 3
 } EntityType;
@@ -62,7 +62,8 @@ struct Entity core_entities[ENTITY_COUNT];
 struct HardwareInfo hw_info;
 
 // Add this function to check if we're in protected mode
-uint32_t check_protected_mode() {
+uint32_t check_protected_mode()
+{
     uint32_t cr0;
     __asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
     return cr0 & 0x1;
@@ -87,7 +88,8 @@ void probe_hardware();
 void set_memory_value(uint32_t address, uint8_t value);
 uint8_t get_memory_value(uint32_t address);
 //---Kernel starting point---
-void kmain() {
+void kmain()
+{
     // IMMEDIATE VGA OUTPUT - Test if kernel is reached
     volatile char* video = (volatile char*)0xb8000;
     video[0] = 'K';
@@ -98,7 +100,7 @@ void kmain() {
     video[5] = 0x0F;
     video[6] = 'N';
     video[7] = 0x0F;
-    
+
     // Check if we're in protected mode - TEMPORARILY DISABLED FOR DEBUGGING
     // The bootloader already puts us in 32-bit protected mode
     /*
@@ -114,7 +116,7 @@ void kmain() {
         while(1);
     }
     */
-    
+
     // Initialize serial output for debugging
     serial_init();
     serial_print("DEBUG: Serial initialized, kernel reached!\n");
@@ -137,7 +139,8 @@ void kmain() {
     }
 }
 //---Hash function (FNV-1a)---
-uint32_t hash_data(const void* input, uint32_t size) {
+uint32_t hash_data(const void* input, uint32_t size)
+{
     const uint8_t* data = (const uint8_t*)input;
     uint32_t hash = 2166136261U;
     for (uint32_t i = 0; i < size; i++) {
@@ -147,7 +150,8 @@ uint32_t hash_data(const void* input, uint32_t size) {
     return hash;
 }
 //---Holographic Memory Functions---
-HolographicVector create_holographic_vector(const void* input, uint32_t size) {
+HolographicVector create_holographic_vector(const void* input, uint32_t size)
+{
     HolographicVector vector = {0};
     vector.hash_signature = hash_data(input, size);
     vector.valid = 1;
@@ -164,7 +168,8 @@ HolographicVector create_holographic_vector(const void* input, uint32_t size) {
     }
     return vector;
 }
-void encode_holographic_memory(HolographicVector* input, HolographicVector* output) {
+void encode_holographic_memory(HolographicVector* input, HolographicVector* output)
+{
     if (holo_system.memory_count >= MAX_MEMORY_ENTRIES) {
         print("Warning: Holographic memory full, overwriting oldest entry\n");
         holo_system.memory_count = 0;
@@ -176,16 +181,18 @@ void encode_holographic_memory(HolographicVector* input, HolographicVector* outp
     entry->valid = 1;
     holo_system.memory_count++;
 }
-HolographicVector* retrieve_holographic_memory(uint32_t hash) {
+HolographicVector* retrieve_holographic_memory(uint32_t hash)
+{
     for (int i = 0; i < holo_system.memory_count; i++) {
-        if (holo_system.memory_pool[i].valid && 
-            holo_system.memory_pool[i].input_pattern.hash_signature == hash) {
+        if (holo_system.memory_pool[i].valid &&
+                holo_system.memory_pool[i].input_pattern.hash_signature == hash) {
             return &holo_system.memory_pool[i].output_pattern;
         }
     }
     return 0;
 }
-void initialize_holographic_memory() {
+void initialize_holographic_memory()
+{
     print("Setting up holographic memory pool...\n");
     holo_system.memory_count = 0;
     holo_system.global_timestamp = 0;
@@ -197,7 +204,8 @@ void initialize_holographic_memory() {
     print(" dimensions available\n");
 }
 //---Entity Functions---
-void initialize_core_entities() {
+void initialize_core_entities()
+{
     print("Creating entities in holographic space...\n");
     // CPU Entity
     char cpu_input[] = "CPU_ENTITY";
@@ -208,7 +216,7 @@ void initialize_core_entities() {
     core_entities[0].knowledge = create_holographic_vector(cpu_knowledge, sizeof(cpu_knowledge));
     core_entities[0].tasks_processed = 0;
     print("CPU Entity positioned in holographic space\n");
-    // Memory Entity  
+    // Memory Entity
     char mem_input[] = "MEMORY_ENTITY";
     char mem_knowledge[] = "MEMORY_MANAGEMENT";
     core_entities[1].type = ENTITY_MEMORY;
@@ -236,7 +244,8 @@ void initialize_core_entities() {
     core_entities[3].tasks_processed = 0;
     print("FileSystem Entity positioned in holographic space\n");
 }
-void verify_holographic_memory() {
+void verify_holographic_memory()
+{
     print("Testing holographic associative memory...\n");
     char test_input[] = "TEST_PATTERN";
     char test_output[] = "EXPECTED_RESULT";
@@ -259,7 +268,8 @@ void verify_holographic_memory() {
         print("Holographic Memory Test 2: FAILED - Entity knowledge not found\n");
     }
 }
-void probe_hardware() {
+void probe_hardware()
+{
     print("Initiating holographic hardware probe...\n");
     print("Entities collaborating for system discovery...\n");
     for (int i = 0; i < ENTITY_COUNT; i++) {
@@ -270,16 +280,19 @@ void probe_hardware() {
     print(" entities active\n");
 }
 //---Memory Management Functions---
-void set_memory_value(uint32_t address, uint8_t value) {
+void set_memory_value(uint32_t address, uint8_t value)
+{
     uint8_t *ptr = (uint8_t *)address;
     *ptr = value;
 }
-uint8_t get_memory_value(uint32_t address) {
+uint8_t get_memory_value(uint32_t address)
+{
     uint8_t *ptr = (uint8_t *)address;
     return *ptr;
 }
 //---Video Functions---
-void print_char(char c, uint8_t color) {
+void print_char(char c, uint8_t color)
+{
     volatile char* video = (volatile char*)VIDEO_MEMORY;
     static int position = 0;
     if (c == '\n') {
@@ -293,13 +306,15 @@ void print_char(char c, uint8_t color) {
         position = 0;
     }
 }
-void print(const char* str) {
+void print(const char* str)
+{
     while (*str != 0) {
         print_char(*str, 0x0f);
         str++;
     }
 }
-void print_hex(uint32_t value) {
+void print_hex(uint32_t value)
+{
     char hex_digits[] = "0123456789ABCDEF";
     char buffer[9];
     for (int i = 7; i >= 0; i--) {
@@ -310,19 +325,22 @@ void print_hex(uint32_t value) {
     print(buffer);
 }
 // Port I/O functions
-static inline uint8_t inb(uint16_t port) {
+static inline uint8_t inb(uint16_t port)
+{
     uint8_t result;
     __asm__ volatile("inb %1, %0" : "=a"(result) : "Nd"(port));
     return result;
 }
 
-static inline void outb(uint16_t port, uint8_t data) {
+static inline void outb(uint16_t port, uint8_t data)
+{
     __asm__ volatile("outb %0, %1" : : "a"(data), "Nd"(port));
 }
 
 
 // Serial port functions for debugging output
-void serial_init() {
+void serial_init()
+{
     // Initialize COM1 (0x3F8) - standard Linux/FreeBSD approach
     outb(0x3F8 + 1, 0x00);    // Disable all interrupts
     outb(0x3F8 + 3, 0x80);    // Enable DLAB (set baud rate divisor)
@@ -333,13 +351,15 @@ void serial_init() {
     outb(0x3F8 + 4, 0x0B);    // IRQs enabled, RTS/DSR set
 }
 
-void serial_write(char c) {
+void serial_write(char c)
+{
     // Wait for transmit buffer to be empty
     while (!(inb(0x3F8 + 5) & 0x20));
     outb(0x3F8, c);
 }
 
-void serial_print(const char* str) {
+void serial_print(const char* str)
+{
     while (*str != 0) {
         serial_write(*str);
         str++;
