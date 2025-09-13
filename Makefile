@@ -57,7 +57,7 @@ $(DISK_IMAGE): $(BOOTLOADER) $(KERNEL_BIN)
 
 # Run the OS in QEMU
 run: $(DISK_IMAGE)
-	$(QEMU) -fda $<
+	$(QEMU) -fda $< -format raw
 
 # Clean build artifacts
 clean:
