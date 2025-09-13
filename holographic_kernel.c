@@ -15,7 +15,7 @@ typedef unsigned int    uint32_t;
 // Entity types
 typedef enum {
     ENTITY_CPU = 0,
-    ENTITY_MEMORY = 1, 
+    ENTITY_MEMORY = 1,
     ENTITY_DEVICE = 2,
     ENTITY_FILESYSTEM = 3
 } EntityType;
@@ -65,7 +65,8 @@ struct HolographicSystem {
 struct Entity core_entities[ENTITY_COUNT];
 struct HardwareInfo hw_info;
 // Add this function to check if we're in protected mode
-uint32_t check_protected_mode() {
+uint32_t check_protected_mode()
+{
     uint32_t cr0;
     __asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
     return cr0 & 0x1;
@@ -87,54 +88,62 @@ void probe_hardware();
 void set_memory_value(uint32_t address, uint8_t value);
 uint8_t get_memory_value(uint32_t address);
 //---Debug function---
-void print_debug(const char* message) {
+void print_debug(const char* message)
+{
     print("[DEBUG] ");
     print(message);
     print("
-");
+          ");
 }
 //---Kernel starting point---
-void kmain() {
+void kmain()
+{
     // Check if we're in protected mode
     if (!check_protected_mode()) {
         // If not, display an error
         volatile char* video = (volatile char*)0xb8000;
-        video[0] = 'E'; video[1] = 0x4F;
-        video[2] = 'R'; video[3] = 0x4F;
-        video[4] = 'R'; video[5] = 0x4F;
-        video[6] = 'O'; video[7] = 0x4F;
-        video[8] = 'R'; video[9] = 0x4F;
+        video[0] = 'E';
+        video[1] = 0x4F;
+        video[2] = 'R';
+        video[3] = 0x4F;
+        video[4] = 'R';
+        video[5] = 0x4F;
+        video[6] = 'O';
+        video[7] = 0x4F;
+        video[8] = 'R';
+        video[9] = 0x4F;
         while(1);
     }
     print_debug("Protected mode check passed");
     print("Enhanced Holographic Kernel Starting...
-");
-    print_debug("Kernel initialization begun");
-    print("Initializing high-dimensional memory system...
-");
-    // Initialize holographic memory system
-    initialize_holographic_memory();
-    print_debug("Holographic memory initialized");
-    // Initialize entities
-    initialize_core_entities();
-    print_debug("Core entities initialized");
-    // Test holographic memory
-    verify_holographic_memory();
-    print_debug("Holographic memory verified");
-    print("Holographic Kernel Fully Initialized!
-");
-    print_debug("Kernel fully initialized");
-    probe_hardware();
-    print_debug("Hardware probing completed");
-    print("System entering holographic idle state...
-");
-    print_debug("Entering idle state");
+          ");
+          print_debug("Kernel initialization begun");
+          print("Initializing high-dimensional memory system...
+                ");
+                // Initialize holographic memory system
+                initialize_holographic_memory();
+                print_debug("Holographic memory initialized");
+                // Initialize entities
+                initialize_core_entities();
+                print_debug("Core entities initialized");
+                // Test holographic memory
+                verify_holographic_memory();
+                print_debug("Holographic memory verified");
+                print("Holographic Kernel Fully Initialized!
+                      ");
+                      print_debug("Kernel fully initialized");
+                      probe_hardware();
+                      print_debug("Hardware probing completed");
+                      print("System entering holographic idle state...
+                            ");
+                            print_debug("Entering idle state");
     while (1) {
-        __asm__ volatile("hlt");
+    __asm__ volatile("hlt");
     }
 }
 //---Hash function (FNV-1a)---
-uint32_t hash_data(const void* input, uint32_t size) {
+uint32_t hash_data(const void* input, uint32_t size)
+{
     const uint8_t* data = (const uint8_t*)input;
     uint32_t hash = 2166136261U;
     for (uint32_t i = 0; i < size; i++) {
@@ -144,7 +153,8 @@ uint32_t hash_data(const void* input, uint32_t size) {
     return hash;
 }
 //---Holographic Memory Functions---
-HolographicVector create_holographic_vector(const void* input, uint32_t size) {
+HolographicVector create_holographic_vector(const void* input, uint32_t size)
+{
     HolographicVector vector = {0};
     vector.hash_signature = hash_data(input, size);
     vector.valid = 1;
@@ -161,11 +171,12 @@ HolographicVector create_holographic_vector(const void* input, uint32_t size) {
     }
     return vector;
 }
-void encode_holographic_memory(HolographicVector* input, HolographicVector* output) {
+void encode_holographic_memory(HolographicVector* input, HolographicVector* output)
+{
     if (holo_system.memory_count >= MAX_MEMORY_ENTRIES) {
         print("Warning: Holographic memory full, overwriting oldest entry
-");
-        holo_system.memory_count = 0;
+              ");
+              holo_system.memory_count = 0;
     }
     MemoryEntry* entry = &holo_system.memory_pool[holo_system.memory_count];
     entry->input_pattern = *input;
@@ -174,147 +185,157 @@ void encode_holographic_memory(HolographicVector* input, HolographicVector* outp
     entry->valid = 1;
     holo_system.memory_count++;
 }
-HolographicVector* retrieve_holographic_memory(uint32_t hash) {
+HolographicVector* retrieve_holographic_memory(uint32_t hash)
+{
     for (int i = 0; i < holo_system.memory_count; i++) {
-        if (holo_system.memory_pool[i].valid && 
-            holo_system.memory_pool[i].input_pattern.hash_signature == hash) {
+        if (holo_system.memory_pool[i].valid &&
+                holo_system.memory_pool[i].input_pattern.hash_signature == hash) {
             return &holo_system.memory_pool[i].output_pattern;
         }
     }
     return 0;
 }
-void initialize_holographic_memory() {
+void initialize_holographic_memory()
+{
     print("Setting up holographic memory pool...
-");
-    holo_system.memory_count = 0;
-    holo_system.global_timestamp = 0;
+          ");
+          holo_system.memory_count = 0;
+          holo_system.global_timestamp = 0;
     for (int i = 0; i < MAX_MEMORY_ENTRIES; i++) {
-        holo_system.memory_pool[i].valid = 0;
+    holo_system.memory_pool[i].valid = 0;
     }
     print("Holographic memory system online - ");
     print_hex(HOLOGRAPHIC_DIMENSIONS);
     print(" dimensions available
-");
+          ");
 }
 //---Entity Functions---
-void initialize_core_entities() {
+void initialize_core_entities()
+{
     print("Creating entities in holographic space...
-");
-    // CPU Entity
-    char cpu_input[] = "CPU_ENTITY";
-    char cpu_knowledge[] = "PROCESSOR_CONTROL";
-    core_entities[0].type = ENTITY_CPU;
-    core_entities[0].id = 0;
-    core_entities[0].position = create_holographic_vector(cpu_input, sizeof(cpu_input));
-    core_entities[0].knowledge = create_holographic_vector(cpu_knowledge, sizeof(cpu_knowledge));
-    core_entities[0].tasks_processed = 0;
-    print("CPU Entity positioned in holographic space
-");
-    // Memory Entity  
-    char mem_input[] = "MEMORY_ENTITY";
-    char mem_knowledge[] = "MEMORY_MANAGEMENT";
-    core_entities[1].type = ENTITY_MEMORY;
-    core_entities[1].id = 1;
-    core_entities[1].position = create_holographic_vector(mem_input, sizeof(mem_input));
-    core_entities[1].knowledge = create_holographic_vector(mem_knowledge, sizeof(mem_knowledge));
-    core_entities[1].tasks_processed = 0;
-    print("Memory Entity positioned in holographic space
-");
-    // Device Entity
-    char dev_input[] = "DEVICE_ENTITY";
-    char dev_knowledge[] = "DEVICE_COORDINATION";
-    core_entities[2].type = ENTITY_DEVICE;
-    core_entities[2].id = 2;
-    core_entities[2].position = create_holographic_vector(dev_input, sizeof(dev_input));
-    core_entities[2].knowledge = create_holographic_vector(dev_knowledge, sizeof(dev_knowledge));
-    core_entities[2].tasks_processed = 0;
-    print("Device Entity positioned in holographic space
-");
-    // FileSystem Entity
-    char fs_input[] = "FILESYSTEM_ENTITY";
-    char fs_knowledge[] = "FILE_MANAGEMENT";
-    core_entities[3].type = ENTITY_FILESYSTEM;
-    core_entities[3].id = 3;
-    core_entities[3].position = create_holographic_vector(fs_input, sizeof(fs_input));
-    core_entities[3].knowledge = create_holographic_vector(fs_knowledge, sizeof(fs_knowledge));
-    core_entities[3].tasks_processed = 0;
-    print("FileSystem Entity positioned in holographic space
-");
+          ");
+          // CPU Entity
+          char cpu_input[] = "CPU_ENTITY";
+          char cpu_knowledge[] = "PROCESSOR_CONTROL";
+          core_entities[0].type = ENTITY_CPU;
+          core_entities[0].id = 0;
+          core_entities[0].position = create_holographic_vector(cpu_input, sizeof(cpu_input));
+          core_entities[0].knowledge = create_holographic_vector(cpu_knowledge, sizeof(cpu_knowledge));
+          core_entities[0].tasks_processed = 0;
+          print("CPU Entity positioned in holographic space
+                ");
+                // Memory Entity
+                char mem_input[] = "MEMORY_ENTITY";
+                char mem_knowledge[] = "MEMORY_MANAGEMENT";
+                core_entities[1].type = ENTITY_MEMORY;
+                core_entities[1].id = 1;
+                core_entities[1].position = create_holographic_vector(mem_input, sizeof(mem_input));
+                core_entities[1].knowledge = create_holographic_vector(mem_knowledge, sizeof(mem_knowledge));
+                core_entities[1].tasks_processed = 0;
+                print("Memory Entity positioned in holographic space
+                      ");
+                      // Device Entity
+                      char dev_input[] = "DEVICE_ENTITY";
+                      char dev_knowledge[] = "DEVICE_COORDINATION";
+                      core_entities[2].type = ENTITY_DEVICE;
+                      core_entities[2].id = 2;
+                      core_entities[2].position = create_holographic_vector(dev_input, sizeof(dev_input));
+                      core_entities[2].knowledge = create_holographic_vector(dev_knowledge, sizeof(dev_knowledge));
+                      core_entities[2].tasks_processed = 0;
+                      print("Device Entity positioned in holographic space
+                            ");
+                            // FileSystem Entity
+                            char fs_input[] = "FILESYSTEM_ENTITY";
+                            char fs_knowledge[] = "FILE_MANAGEMENT";
+                            core_entities[3].type = ENTITY_FILESYSTEM;
+                            core_entities[3].id = 3;
+                            core_entities[3].position = create_holographic_vector(fs_input, sizeof(fs_input));
+                            core_entities[3].knowledge = create_holographic_vector(fs_knowledge, sizeof(fs_knowledge));
+                            core_entities[3].tasks_processed = 0;
+                            print("FileSystem Entity positioned in holographic space
+                                  ");
 }
-void verify_holographic_memory() {
+                        void verify_holographic_memory()
+{
     print("Testing holographic associative memory...
-");
-    char test_input[] = "TEST_PATTERN";
-    char test_output[] = "EXPECTED_RESULT";
-    HolographicVector input_vector = create_holographic_vector(test_input, sizeof(test_input));
-    HolographicVector output_vector = create_holographic_vector(test_output, sizeof(test_output));
-    encode_holographic_memory(&input_vector, &output_vector);
-    HolographicVector* retrieved = retrieve_holographic_memory(input_vector.hash_signature);
+          ");
+          char test_input[] = "TEST_PATTERN";
+          char test_output[] = "EXPECTED_RESULT";
+          HolographicVector input_vector = create_holographic_vector(test_input, sizeof(test_input));
+          HolographicVector output_vector = create_holographic_vector(test_output, sizeof(test_output));
+          encode_holographic_memory(&input_vector, &output_vector);
+          HolographicVector* retrieved = retrieve_holographic_memory(input_vector.hash_signature);
     if (retrieved) {
-        print("Holographic Memory Test 1: SUCCESS - Pattern retrieved
-");
-        print("  Active dimensions: ");
-        print_hex(retrieved->active_dimensions);
-        print("
-");
-    } else {
-        print("Holographic Memory Test 1: FAILED - Pattern not found
-");
-    }
-    HolographicVector* cpu_knowledge = retrieve_holographic_memory(core_entities[0].knowledge.hash_signature);
-    if (cpu_knowledge) {
-        print("Holographic Memory Test 2: SUCCESS - Entity knowledge accessible
-");
-    } else {
-        print("Holographic Memory Test 2: FAILED - Entity knowledge not found
-");
-    }
+    print("Holographic Memory Test 1: SUCCESS - Pattern retrieved
+          ");
+          print("  Active dimensions: ");
+          print_hex(retrieved->active_dimensions);
+          print("
+                ");
+} else {
+    print("Holographic Memory Test 1: FAILED - Pattern not found
+          ");
 }
-void probe_hardware() {
+HolographicVector* cpu_knowledge = retrieve_holographic_memory(core_entities[0].knowledge.hash_signature);
+if (cpu_knowledge) {
+    print("Holographic Memory Test 2: SUCCESS - Entity knowledge accessible
+          ");
+} else {
+    print("Holographic Memory Test 2: FAILED - Entity knowledge not found
+          ");
+}
+}
+void probe_hardware()
+{
     print("Initiating holographic hardware probe...
-");
-    print("Entities collaborating for system discovery...
-");
+          ");
+          print("Entities collaborating for system discovery...
+                ");
     for (int i = 0; i < ENTITY_COUNT; i++) {
-        core_entities[i].tasks_processed++;
+    core_entities[i].tasks_processed++;
     }
     print("Hardware mapping complete - ");
     print_hex(ENTITY_COUNT);
     print(" entities active
-");
+          ");
 }
 //---Memory Management Functions---
-void set_memory_value(uint32_t address, uint8_t value) {
+void set_memory_value(uint32_t address, uint8_t value)
+{
     uint8_t *ptr = (uint8_t *)address;
     *ptr = value;
 }
-uint8_t get_memory_value(uint32_t address) {
+uint8_t get_memory_value(uint32_t address)
+{
     uint8_t *ptr = (uint8_t *)address;
     return *ptr;
 }
 //---Video Functions---
-void print_char(char c, uint8_t color) {
+void print_char(char c, uint8_t color)
+{
     volatile char* video = (volatile char*)VIDEO_MEMORY;
     static int position = 0;
     if (c == '
-') {
-        position = ((position / 80) + 1) * 80;
-    } else {
-        video[position * 2] = c;
-        video[position * 2 + 1] = color;
-        position++;
-    }
-    if (position >= 80 * 25) {
-        position = 0;
-    }
+            ') {
+            position = ((position / 80) + 1) * 80;
+} else {
+video[position * 2] = c;
+    video[position * 2 + 1] = color;
+    position++;
 }
-void print(const char* str) {
+if (position >= 80 * 25) {
+    position = 0;
+}
+}
+void print(const char* str)
+{
     while (*str != 0) {
         print_char(*str, 0x0f);
         str++;
     }
 }
-void print_hex(uint32_t value) {
+void print_hex(uint32_t value)
+{
     char hex_digits[] = "0123456789ABCDEF";
     char buffer[9];
     for (int i = 7; i >= 0; i--) {
