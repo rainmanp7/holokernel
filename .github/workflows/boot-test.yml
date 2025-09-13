@@ -27,18 +27,9 @@ jobs:
         path: |
           /var/cache/apt/archives
           /var/lib/apt/lists
-        key: ${{ runner.os }}-apt-${{ hashFiles('**/Makefile') }}-v2
+        key: ${{ runner.os }}-apt-${{ hashFiles('**/Makefile') }}-v3
         restore-keys: |
           ${{ runner.os }}-apt-
-
-    - name: Cache Cross-Compiler Toolchain
-      id: cross-compiler-cache
-      uses: actions/cache@v4
-      with:
-        path: /usr/local/i686-elf
-        key: ${{ runner.os }}-i686-elf-tools-v7.1.0
-        restore-keys: |
-          ${{ runner.os }}-i686-elf-tools-
 
     - name: Install Dependencies
       run: |
@@ -46,32 +37,17 @@ jobs:
         if [ "${{ steps.apt-cache.outputs.cache-hit }}" != "true" ]; then
           echo "Cache miss. Updating package list and installing dependencies..."
           sudo apt-get update -y
-          sudo apt-get install -y build-essential nasm qemu-system-i386 astyle gcc-multilib g++-multilib wget unzip
+          sudo apt-get install -y build-essential nasm qemu-system-i386 astyle gcc-multilib g++-multilib
         else
           echo "✅ APT dependencies found in cache."
         fi
 
-        echo "Checking cross-compiler toolchain..."
-        if [ "${{ steps.cross-compiler-cache.outputs.cache-hit }}" != "true" ]; then
-          echo "Cross-compiler cache miss. Installing i686-elf toolchain..."
-          sudo mkdir -p /usr/local/i686-elf
-          wget -q https://github.com/lordmilko/i686-elf-tools/releases/download/7.1.0/i686-elf-tools-linux.zip
-          sudo unzip -q i686-elf-tools-linux.zip -d /usr/local
-          sudo rm i686-elf-tools-linux.zip
-          echo "✅ Cross-compiler toolchain installed."
-        else
-          echo "✅ Cross-compiler toolchain found in cache."
-        fi
-
-        # Add cross-compiler to PATH
-        echo "PATH=/usr/local/i686-elf/bin:$PATH" >> $GITHUB_ENV
-
     - name: Verify Tools Installation
       run: |
         echo "Verifying tool availability:"
-        which i686-elf-gcc && i686-elf-gcc --version | head -1
-        which i686-elf-ld && i686-elf-ld --version | head -1
-        which i686-elf-objcopy && i686-elf-objcopy --version | head -1
+        which gcc && gcc --version | head -1
+        which ld && ld --version | head -1
+        which objcopy && objcopy --version | head -1
         which nasm && nasm -v
         which astyle && astyle --version
         which qemu-system-i386 && qemu-system-i386 --version | head -1
@@ -94,10 +70,88 @@ jobs:
           echo "✅ No formatting changes needed."
         fi
 
+    - name: Modify Makefile for Native Tools
+      run: |
+        echo "Updating Makefile to use native tools with -m32 flag..."
+        # Create a modified Makefile for native compilation
+        cat > Makefile.native << 'EOF'
+# Tools - using native tools with -m32 flag
+ASM = nasm
+CC = gcc -m32
+LD = ld -m elf_i386
+OBJCOPY = objcopy
+QEMU = qemu-system-i386
+
+# Flags
+ASMFLAGS = -f bin
+ASMFLAGS_ELF = -f elf32
+CFLAGS = -c -ffreestanding -fno-pie -nostdlib -nostdinc -O1 -Wall -Wextra
+LDFLAGS = -T linker.ld -nostdlib
+
+# Output files
+BOOTLOADER = boot.bin
+KERNEL_ELF = kernel.elf
+KERNEL_BIN = kernel.bin
+DISK_IMAGE = emergeos.img
+
+# Source files
+BOOT_SRC = boot.asm
+KERNEL_ENTRY_SRC = kernel_entry.asm
+KERNEL_SRC = holographic_kernel.c
+
+# Object files
+KERNEL_ENTRY_OBJ = kernel_entry.o
+KERNEL_OBJ = holographic_kernel.o
+
+# Default target
+all: $(DISK_IMAGE)
+
+# Rule to build bootloader
+$(BOOTLOADER): $(BOOT_SRC)
+	$(ASM) $(ASMFLAGS) $< -o $@
+
+# Rule to build kernel entry object
+$(KERNEL_ENTRY_OBJ): $(KERNEL_ENTRY_SRC)
+	$(ASM) $(ASMFLAGS_ELF) $< -o $@
+
+# Rule to build kernel object
+$(KERNEL_OBJ): $(KERNEL_SRC)
+	$(CC) $(CFLAGS) $< -o $@
+
+# Rule to link kernel objects into ELF
+$(KERNEL_ELF): $(KERNEL_ENTRY_OBJ) $(KERNEL_OBJ)
+	$(LD) $(LDFLAGS) $^ -o $@
+
+# Rule to convert ELF to binary
+$(KERNEL_BIN): $(KERNEL_ELF)
+	$(OBJCOPY) -O binary $< $@
+
+# Rule to create disk image
+$(DISK_IMAGE): $(BOOTLOADER) $(KERNEL_BIN)
+	dd if=/dev/zero of=$@ bs=512 count=2880
+	dd if=$(BOOTLOADER) of=$@ conv=notrunc
+	dd if=$(KERNEL_BIN) of=$@ seek=1 conv=notrunc
+
+# Run the OS in QEMU
+run: $(DISK_IMAGE)
+	$(QEMU) -fda $<
+
+# Clean build artifacts
+clean:
+	rm -f *.bin *.o *.elf *.img
+
+# Phony targets
+.PHONY: all run clean
+EOF
+
+        # Use the native Makefile
+        cp Makefile.native Makefile
+        echo "✅ Makefile updated for native compilation"
+
     - name: Build emergeos.img
       run: |
-        echo "Building emergeos.img with Makefile..."
-        echo "Using cross-compiler: $(which i686-elf-gcc)"
+        echo "Building emergeos.img with native tools..."
+        echo "Using compiler: $(which gcc)"
         
         if [ ! -f Makefile ]; then
           echo "Error: Makefile not found."
