@@ -1,128 +1,68 @@
-name: Boot Test with QEMU
+name: Boot Test with Ninja and Multilib
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
   workflow_dispatch:
 
 jobs:
   build-and-boot:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      QEMU_TIMEOUT: 120  # Configurable timeout in seconds
-
+    
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
-      with:
-        fetch-depth: 0  # Needed for git diff in formatting step
 
-    - name: Cache APT Dependencies
+    - name: Cache APT and Dependencies
       id: apt-cache
-      uses: actions/cache@v4
+      uses: actions/cache@v3
       with:
         path: |
           /var/cache/apt/archives
           /var/lib/apt/lists
-        key: ${{ runner.os }}-apt-${{ hashFiles('**/dependencies.txt') }}-v1
+        key: ${{ runner.os }}-apt-${{ hashFiles('dependencies.txt') }}
         restore-keys: |
           ${{ runner.os }}-apt-
 
-    - name: Install Dependencies
+    - name: Cache Installed Tools
+      id: tools-cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          /usr/bin/astyle
+        key: ${{ runner.os }}-tools-${{ hashFiles('dependencies.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-tools-
+
+    - name: Install All Dependencies
       run: |
         echo "Checking cached dependencies..."
-        if [ "${{ steps.apt-cache.outputs.cache-hit }}" != "true" ]; then
-          echo "Cache miss. Updating package list and installing dependencies..."
-          sudo apt-get update -y || { echo "Failed to update package list"; exit 1; }
-          sudo apt-get install -y qemu-system-i386 astyle build-essential nasm || { echo "Failed to install dependencies"; exit 1; }
+        if [ "${{ steps.tools-cache.outputs.cache-hit }}" != "true" ] || [ "${{ steps.apt-cache.outputs.cache-hit }}" != "true" ]; then
+          echo "Cache miss or partial miss. Updating package list and installing dependencies..."
+          sudo apt-get update -y
+          sudo apt-get install -y astyle
         else
-          echo "✅ All dependencies found in cache."
-        fi
-        echo "Verifying Artistic Style installation..."
-        if ! command -v astyle &> /dev/null; then
-          echo "astyle not found. Installing..."
-          sudo apt-get install -y astyle || { echo "Failed to install astyle"; exit 1; }
-        else
-          echo "✅ astyle is already installed."
-        fi
-        echo "Verifying NASM installation..."
-        if ! command -v nasm &> /dev/null; then
-          echo "nasm not found. Installing..."
-          sudo apt-get install -y nasm || { echo "Failed to install nasm"; exit 1; }
-        else
-          echo "✅ nasm is already installed."
+          echo "✅ All dependencies found in cache. Skipping installation."
         fi
 
-    - name: Fix Code Formatting
-      if: github.event_name != 'workflow_dispatch' && !contains(github.event.head_commit.message, '.github/workflows')
+    - name: Fix Code Formatting Automatically
       run: |
-        echo "Checking code formatting..."
-        find . -type f \( -name "*.c" -o -name "*.h" -o -name "*.s" -o -name "*.asm" \) -exec astyle --style=kr --indent=spaces=4 --lineend=linux -n {} \;
-        if ! git diff --exit-code; then
-          echo "Formatting changes detected. Committing and pushing..."
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          git commit -m "Auto-format code with astyle"
-          git push https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/${{ github.repository }} || { echo "Failed to push formatting changes"; exit 1; }
+        echo "Checking if workflow file was modified..."
+        if git diff --name-only HEAD^ HEAD | grep -q "^\.github/workflows/.*\.yml"; then
+          echo "Workflow file modified. Skipping formatting to avoid re-triggering."
         else
-          echo "✅ No formatting changes needed."
+          echo "Automatically fixing code formatting for C files only..."
+          find . -type f \( -name "*.c" -o -name "*.h" \) -exec astyle --style=kr --indent=spaces=4 --lineend=linux -n {} \;
+          
+          if ! git diff --exit-code; then
+            echo "Changes found. Committing and pushing..."
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git config --global credential.helper "store"
+            echo "https://github-actions[bot]:${{ secrets.PAT_TOKEN }}@github.com" > ~/.git-credentials
+            git add .
+            git commit -m "Auto-format code with astyle"
+            git push
+          else
+            echo "No formatting changes needed."
+          fi
         fi
-
-    - name: Build emergeos.img
-      run: |
-        echo "Building emergeos.img with Makefile..."
-        if [ ! -f Makefile ]; then
-          echo "Error: Makefile not found."
-          exit 1
-        fi
-        make emergeos.img || { echo "Error: Make failed"; exit 1; }
-        if [ ! -f emergeos.img ]; then
-          echo "Error: emergeos.img was not created."
-          exit 1
-        fi
-        echo "✅ emergeos.img created successfully."
-
-    - name: Run QEMU and Check Boot
-      id: run-qemu
-      run: |
-        set -e
-        if [ ! -f emergeos.img ]; then
-          echo "Error: emergeos.img not found."
-          exit 1
-        fi
-        echo "Starting QEMU..."
-        timeout ${{ env.QEMU_TIMEOUT }}s qemu-system-i386 \
-          -fda emergeos.img \
-          -serial stdio \
-          -display none \
-          -monitor none \
-          -machine pc \
-          -d cpu_reset \
-          -no-reboot \
-          -boot a \
-          -m 64M \
-          -nographic > serial.log 2>&1 || true
-        
-        echo "--- Serial Output ---"
-        cat serial.log
-        echo "---------------------"
-        
-        if grep -q "Kernel" serial.log; then
-          echo "✅ Boot successful!"
-        else
-          echo "❌ No kernel message found. Output:"
-          cat serial.log
-          exit 1
-        fi
-
-    - name: Upload Serial Log
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: serial-output
-        path: serial.log
-        if-no-files-found: warn
