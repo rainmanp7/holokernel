@@ -33,6 +33,7 @@ jobs:
       with:
         path: |
           /usr/bin/astyle
+          /usr/bin/make
         key: ${{ runner.os }}-tools-${{ hashFiles('dependencies.txt') }}
         restore-keys: |
           ${{ runner.os }}-tools-
@@ -45,7 +46,7 @@ jobs:
           sudo apt-get update -y
           
           echo "Installing core dependencies..."
-          sudo apt-get install -y qemu-system-i386 astyle build-essential  # Added build-essential as a placeholder
+          sudo apt-get install -y qemu-system-i386 astyle build-essential
           
           echo "Verifying Artistic Style installation..."
           if ! command -v astyle &> /dev/null; then
@@ -56,23 +57,6 @@ jobs:
           fi
         else
           echo "✅ All dependencies found in cache. Skipping installation."
-        fi
-
-    - name: Build emergeos.img
-      run: |
-        echo "Building emergeos.img..."
-        # Placeholder: Replace with your actual build command (e.g., ./build.sh, make image, or custom script)
-        # Example: If using a script named build.sh
-        if [ -f build.sh ]; then
-          chmod +x build.sh
-          ./build.sh
-        else
-          echo "Error: No build script found. Please provide a build command for emergeos.img."
-          exit 1
-        fi
-        if [ ! -f emergeos.img ]; then
-          echo "Error: emergeos.img was not created. Check your build process."
-          exit 1
         fi
 
     - name: Fix Code Formatting Automatically
@@ -96,6 +80,19 @@ jobs:
           else
             echo "No formatting changes needed."
           fi
+        fi
+
+    - name: Build emergeos.img with Makefile
+      run: |
+        echo "Building emergeos.img with Makefile..."
+        if [ ! -f Makefile ]; then
+          echo "Error: Makefile not found. Please ensure a Makefile exists in the repository root."
+          exit 1
+        fi
+        make emergeos.img
+        if [ ! -f emergeos.img ]; then
+          echo "Error: emergeos.img was not created. Check your Makefile and build process."
+          exit 1
         fi
 
     - name: Run QEMU and Check Boot Output
