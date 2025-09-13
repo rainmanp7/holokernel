@@ -1,6 +1,10 @@
-name: Boot Test with Ninja and Multilib
+name: Boot Test with QEMU
 
 on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -41,7 +45,7 @@ jobs:
           sudo apt-get update -y
           
           echo "Installing core dependencies..."
-          sudo apt-get install -y astyle
+          sudo apt-get install -y qemu-system-i386 astyle
           
           echo "Verifying Artistic Style installation..."
           if ! command -v astyle &> /dev/null; then
@@ -76,3 +80,65 @@ jobs:
             echo "No formatting changes needed."
           fi
         fi
+
+    - name: Run QEMU and Check Boot Output
+      id: run-qemu
+      run: |
+        set -e
+        echo "Starting QEMU in a background process..."
+        if [ ! -f emergeos.img ]; then
+          echo "Error: emergeos.img not found. Please ensure it exists in the repository root."
+          exit 1
+        fi
+        qemu-system-i386 \
+          -fda emergeos.img \
+          -serial file:serial.log \
+          -display none \
+          -monitor none \
+          -machine pc \
+          -d cpu_reset \
+          -no-reboot \
+          -no-shutdown \
+          -boot a \
+          -m 64M \
+          -accel off \
+          -nographic &
+        
+        QEMU_PID=$!
+        echo "QEMU process started with PID: $QEMU_PID. Waiting for serial output..."
+
+        TIMEOUT=120
+        ELAPSED=0
+        while [ ! -s serial.log ] || ! grep -q "Kernel" serial.log; do
+            if [ $ELAPSED -ge $TIMEOUT ]; then
+                echo "Timeout waiting for serial output."
+                kill -9 $QEMU_PID || true
+                exit 1
+            fi
+            sleep 1
+            ELAPSED=$((ELAPSED+1))
+        done
+
+        echo "✅ Successfully found 'Kernel' message in serial output."
+        kill $QEMU_PID
+        echo "Waiting for QEMU process to terminate..."
+        wait $QEMU_PID || true
+        echo "QEMU process terminated."
+
+        echo "--- Serial Output ---"
+        cat serial.log
+        echo "---------------------"
+        
+        if grep -q "Kernel" serial.log; then
+            echo "✅ Boot successful!"
+        else
+            echo "❌ No kernel message found. Boot failed."
+            exit 1
+        fi
+    
+    - name: Upload Serial Log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: serial-output
+        path: serial.log
