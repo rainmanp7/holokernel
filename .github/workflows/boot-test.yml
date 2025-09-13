@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      QEMU_TIMEOUT: 120  # Configurable timeout in seconds
+      QEMU_TIMEOUT: 120
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
