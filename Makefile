@@ -1,15 +1,15 @@
-# Tools
+# Tools - using native tools with -m32 flag
 ASM = nasm
-CC = i686-elf-gcc
-LD = i686-elf-ld
-OBJCOPY = i686-elf-objcopy
+CC = gcc -m32
+LD = ld -m elf_i386
+OBJCOPY = objcopy
 QEMU = qemu-system-i386
 
 # Flags
 ASMFLAGS = -f bin
 ASMFLAGS_ELF = -f elf32
-CFLAGS = -m32 -c -ffreestanding -fno-pie -nostdlib -nostdinc -O1 -Wall -Wextra
-LDFLAGS = -m elf_i386 -T linker.ld -nostdlib
+CFLAGS = -c -ffreestanding -fno-pie -nostdlib -nostdinc -O1 -Wall -Wextra
+LDFLAGS = -T linker.ld -nostdlib
 
 # Output files
 BOOTLOADER = boot.bin
