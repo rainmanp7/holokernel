@@ -1,6 +1,8 @@
 ; boot.asm
+
 [org 0x7c00]
 [bits 16]
+
 start:
     cli
     xor ax, ax
@@ -9,23 +11,23 @@ start:
     mov ss, ax
     mov sp, 0x7c00        ; Stack grows downward from bootloader
     sti
-    
+
     ; Save boot drive
     mov [boot_drive], dl
-    
+
     ; Set video mode (80x25 text)
     mov ax, 0x0003
     int 0x10
-    
+
     ; Print loading message
     mov si, boot_msg
     call print
-    
+
     ; Load kernel to 0x1000:0x0000 (physical address 0x10000)
     mov ax, 0x1000
     mov es, ax
     xor bx, bx            ; ES:BX = 0x1000:0x0000
-    
+
     mov ah, 0x02          ; Read sector function
     mov al, 20            ; Number of sectors to read
     mov ch, 0             ; Cylinder 0
@@ -34,19 +36,21 @@ start:
     mov dl, [boot_drive]  ; Drive number
     int 0x13
     jc disk_error
-    
+
     ; Print success message
     mov si, load_success_msg
     call print
-    
+
     ; Switch to protected mode
-    cli
-    lgdt [gdt_descriptor]
-    
+    cli  ; Disable interrupts
+    lgdt [gdt_descriptor] ; Load GDT
     mov eax, cr0
     or eax, 0x1
-    mov cr0, eax
-    
+    mov cr0, eax       ; Enable protected mode
+
+    ; Add this line to check if we're in protected mode
+    mov word [0x8000], 0x1234  ; Write a test value to memory
+
     ; Far jump to flush pipeline and load CS with 32-bit code segment
     jmp 0x08:protected_mode_start
 
@@ -79,10 +83,10 @@ protected_mode_start:
     mov gs, ax
     mov ss, ax
     mov esp, 0x90000      ; Set up stack pointer
-    
+
     ; Call the kernel main function
     call 0x10000          ; Jump to kernel entry point
-    
+
     ; Halt if kernel returns
     cli
     hlt
