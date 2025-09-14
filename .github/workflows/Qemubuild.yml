@@ -27,9 +27,9 @@ jobs:
           path: |
             /var/cache/apt/archives
             /var/lib/apt/lists
-        key: ${{ runner.os }}-apt-${{ hashFiles('**/Makefile', '**/dependencies.txt', 'packages.txt') }}-v6 #Increment cache key
-        restore-keys: |
-          ${{ runner.os }}-apt-
+          key: ${{ runner.os }}-apt-${{ hashFiles('**/Makefile', '**/dependencies.txt', 'packages.txt') }}-v6 #Increment cache key
+          restore-keys: |
+            ${{ runner.os }}-apt-
 
       - name: Save Installed Packages
         run: dpkg --get-selections "*" > packages.txt
@@ -70,7 +70,7 @@ jobs:
           make "emergeos.img" || { echo "Error: Make failed"; exit 1; }
 
           if [ ! -f emergeos.img ]; then
-            echo "Error: emergeos.img not found."
+            echo "Error: emergeos.img was not created."
             echo "emergeos.img NOT found so exiting"
             exit 1
           else
