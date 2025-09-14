@@ -89,7 +89,6 @@ jobs:
 
             timeout ${{ env.QEMU_TIMEOUT }}s qemu-system-i386 \
               -fda "$IMAGE_ACTUAL_PATH" \
-              -serial stdio \
               -nographic \
               -machine pc \
               -cpu pentium \
