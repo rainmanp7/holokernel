@@ -27,9 +27,9 @@ jobs:
           path: |
             /var/cache/apt/archives
             /var/lib/apt/lists
-        key: ${{ runner.os }}-apt-${{ hashFiles('**/Makefile', '**/dependencies.txt', 'packages.txt') }}-v6 #Increment cache key
-        restore-keys: |
-          ${{ runner.os }}-apt-
+          key: ${{ runner.os }}-apt-${{ hashFiles('**/Makefile', '**/dependencies.txt', 'packages.txt') }}-v6 #Increment cache key
+          restore-keys: |
+            ${{ runner.os }}-apt-
 
       - name: Save Installed Packages
         run: dpkg --get-selections "*" > packages.txt
@@ -121,7 +121,6 @@ jobs:
                 echo "Serial log is empty - QEMU may have failed to start"
               fi
             exit 1
-          fi
 
       - name: Upload Build Artifacts
         if: always()
@@ -135,7 +134,7 @@ jobs:
             kernel.elf
             kernel.bin
             clean.log
-        if-no-files-found: warn
+          if-no-files-found: warn
 
       - name: Upload Serial Log
         if: always()
