@@ -8,7 +8,7 @@ QEMU = qemu-system-i386
 # Flags
 ASMFLAGS = -f bin
 ASMFLAGS_ELF = -f elf32
-CFLAGS = -c -ffreestanding -fno-pie -nostdlib -nostdinc -O1 -Wall -Wextra
+CFLAGS = -c -ffreestanding -fno-pie -nostdlib -O1 -Wall -Wextra
 LDFLAGS = -T linker.ld -nostdlib
 
 # Output files
@@ -57,7 +57,7 @@ $(DISK_IMAGE): $(BOOTLOADER) $(KERNEL_BIN)
 
 # Run the OS in QEMU
 run: $(DISK_IMAGE)
-	$(QEMU) -fda $< -format raw
+	$(QEMU) -fda $< -format raw -serial stdio -nographic -machine pc -cpu pentium -m 64M -no-reboot -S -s
 
 # Clean build artifacts
 clean:
