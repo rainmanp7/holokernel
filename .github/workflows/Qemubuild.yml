@@ -27,9 +27,12 @@ jobs:
           path: |
             /var/cache/apt/archives
             /var/lib/apt/lists
-          key: ${{ runner.os }}-apt-${{ hashFiles('**/Makefile', '**/dependencies.txt') }}-v4
-          restore-keys: |
-            ${{ runner.os }}-apt-
+        key: ${{ runner.os }}-apt-${{ hashFiles('**/Makefile', '**/dependencies.txt', 'packages.txt') }}-v5
+        restore-keys: |
+          ${{ runner.os }}-apt-
+
+      - name: Save Installed Packages
+        run: dpkg --get-selections "*" > packages.txt
 
       - name: Install Dependencies
         run: |
@@ -37,7 +40,7 @@ jobs:
           if [ "${{ steps.apt-cache.outputs.cache-hit }}" != "true" ]; then
             echo "Cache miss. Updating package list and installing dependencies..."
             sudo apt-get update -y
-            sudo apt-get -f install -y
+            sudo apt-get -f install -y # Fix unmet dependencies
             sudo apt-get install -y build-essential nasm qemu-system-i386 gcc-multilib g++-multilib
           else
             echo "✅ APT dependencies found in cache."
@@ -79,35 +82,44 @@ jobs:
 
       - name: Run QEMU and Check Boot
         run: |
+          # Check if the image exists
           if [ ! -f emergeos.img ]; then
             echo "Error: emergeos.img not found."
             exit 1
-          fi
-          echo "Starting QEMU with emergeos.img..."
-          timeout ${{ env.QEMU_TIMEOUT }}s qemu-system-i386 \
-            -fda format=raw,file=emergeos.img \
-            -serial stdio \
-            -nographic \
-            -machine pc \
-            -cpu pentium \
-            -m 64M \
-            -no-reboot > serial.log 2>&1 || true
-
-          echo "--- Serial Output ---"
-          cat serial.log
-          echo "---------------------"
-
-          if grep -qi "Kernel initialized successfully" serial.log; then
-            echo "✅ Boot successful! Kernel initialized."
           else
-            echo "❌ Kernel did not initialize properly."
-            echo "Checking for any boot output..."
-            if [ -s serial.log ]; then
-              echo "Output contained: $(wc -l < serial.log) lines"
-              head -20 serial.log
+            echo "emergeos.img found!"
+            # Find the actual location of emergeos.img
+            IMAGE_ACTUAL_PATH=$(find . -name emergeos.img -print)
+            echo "Actual path of emergeos.img: $IMAGE_ACTUAL_PATH"
+
+            # Get the full path to the image
+            IMAGE_PATH="${{ github.workspace }}/emergeos.img"
+
+            echo "Starting QEMU with image: $IMAGE_PATH"
+            timeout ${{ env.QEMU_TIMEOUT }}s qemu-system-i386 \
+              -fda format=raw,file="$IMAGE_PATH" \
+              -serial stdio \
+              -nographic \
+              -machine pc \
+              -cpu pentium \
+              -m 64M \
+              -no-reboot > serial.log 2>&1 || true
+
+            echo "--- Serial Output ---"
+            cat serial.log
+            echo "---------------------"
+
+            if grep -qi "Kernel initialized successfully" serial.log; then
+              echo "✅ Boot successful! Kernel initialized."
             else
-              echo "Serial log is empty - QEMU may have failed to start"
-            fi
+              echo "❌ Kernel did not initialize properly."
+              echo "Checking for any boot output..."
+              if [ -s serial.log ]; then
+                echo "Output contained: $(wc -l < serial.log) lines"
+                head -20 serial.log
+              else
+                echo "Serial log is empty - QEMU may have failed to start"
+              fi
             exit 1
           fi
 
@@ -122,7 +134,7 @@ jobs:
             boot.bin
             kernel.elf
             kernel.bin
-          if-no-files-found: warn
+        if-no-files-found: warn
 
       - name: Upload Serial Log
         if: always()
