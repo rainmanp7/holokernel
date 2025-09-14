@@ -84,7 +84,7 @@ jobs:
           fi
           echo "Starting QEMU with emergeos.img..."
           timeout ${{ env.QEMU_TIMEOUT }}s qemu-system-i386 \
-            -fda emergeos.img \
+            -fda format=raw,file=emergeos.img \
             -serial stdio \
             -display none \
             -machine pc \
