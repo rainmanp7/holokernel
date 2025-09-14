@@ -10,8 +10,7 @@ on:
 jobs:
   build-and-boot:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-
+    timeout-minutes: 10
     env:
       QEMU_TIMEOUT: 120
 
@@ -21,72 +20,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check and Update Dependencies
-        id: check_dependencies
-        run: |
-          echo "Checking and updating dependencies"
-
-          # List of base dependencies
-          BASE_DEPS="build-essential nasm qemu-system-i386 gcc-multilib g++-multilib"
-
-          # Check if dependencies.txt exists
-          if [ ! -f dependencies.txt ]; then
-            echo "dependencies.txt not found, creating it"
-            echo "$BASE_DEPS" | tr ' ' '\n' > dependencies.txt
-          fi
-
-          # Get list of dependencies from dependencies.txt
-          DEPS_TXT=$(cat dependencies.txt)
-
-          # Get list of installed packages
-          INSTALLED_PKGS=$(dpkg-query -W -f='${Package}\n' | sort)
-
-          # Function to check if a package is installed
-          is_installed() {
-            echo "$INSTALLED_PKGS" | grep -q "^$1$"
-          }
-
-          # Check if all dependencies in dependencies.txt are installed
-          MISSING_DEPS=""
-          for DEP in $DEPS_TXT; do
-            if ! is_installed "$DEP"; then
-              echo "Package $DEP is not installed"
-              MISSING_DEPS="$MISSING_DEPS $DEP"
-            fi
-          done
-
-          # Install missing dependencies
-          if [ -n "$MISSING_DEPS" ]; then
-            echo "Installing missing dependencies: $MISSING_DEPS"
-            sudo apt-get update -y
-            sudo apt-get install -y $MISSING_DEPS
-          fi
-
-          # Find packages installed but not in dependencies.txt
-          EXTRA_DEPS=""
-          for PKG in $INSTALLED_PKGS; do
-            if ! grep -q "^$PKG$" dependencies.txt; then
-              if echo "$BASE_DEPS" | grep -q "^$PKG$"; then
-                  true #skip base dependencies
-              else
-                echo "Package $PKG is installed but not in dependencies.txt"
-                EXTRA_DEPS="$EXTRA_DEPS $PKG"
-              fi
-            fi
-          done
-          #Add extra dependencies to dependencies.txt
-          if [ -n "$EXTRA_DEPS" ]; then
-            echo "Adding extra dependencies to dependencies.txt: $EXTRA_DEPS"
-            echo "$EXTRA_DEPS" >> dependencies.txt
-          fi
-
-          # Sort dependencies.txt and remove duplicates
-          sort -u dependencies.txt -o dependencies.txt
-
-          echo "Final dependencies.txt:"
-          cat dependencies.txt
-          pwd
-
       - name: Cache APT Dependencies
         id: apt-cache
         uses: actions/cache@v4
@@ -94,15 +27,24 @@ jobs:
           path: |
             /var/cache/apt/archives
             /var/lib/apt/lists
-          key: ${{ runner.os }}-apt-${{ hashFiles('dependencies.txt') }}-v4
-          restore-keys: |
-            ${{ runner.os }}-apt-
+        key: ${{ runner.os }}-apt-${{ hashFiles('**/Makefile', '**/dependencies.txt', 'packages.txt') }}-v5
+        restore-keys: |
+          ${{ runner.os }}-apt-
+
+      - name: Save Installed Packages
+        run: dpkg --get-selections "*" > packages.txt
 
       - name: Install Dependencies
         run: |
-          echo "Installing dependencies from dependencies.txt"
-          sudo apt-get update -y
-          sudo apt-get install -y $(cat dependencies.txt)
+          echo "Checking cached dependencies..."
+          if [ "${{ steps.apt-cache.outputs.cache-hit }}" != "true" ]; then
+            echo "Cache miss. Updating package list and installing dependencies..."
+            sudo apt-get update -y
+            sudo apt-get -f install -y # Fix unmet dependencies
+            sudo apt-get install -y build-essential nasm qemu-system-i386 gcc-multilib g++-multilib
+          else
+            echo "✅ APT dependencies found in cache."
+          fi
 
       - name: Verify Tools Installation
         run: |
@@ -114,19 +56,20 @@ jobs:
           which qemu-system-i386 && qemu-system-i386 --version | head -1
 
       - name: Build emergeos.img
-        id: build_image
         run: |
           echo "Building emergeos.img with native tools..."
           echo "Using compiler: $(which gcc)"
+
           if [ ! -f Makefile ]; then
             echo "Error: Makefile not found."
             ls -la
             exit 1
           fi
-          make clean || true
+
+          make clean 2>&1 | tee clean.log || { echo "make clean failed, but continuing..."; cat clean.log; }
           make emergeos.img || { echo "Error: Make failed"; exit 1; }
-          IMG_PATH=$(find . -name "emergeos.img")
-          if [ -z "$IMG_PATH" ]; then
+
+          if [ ! -f emergeos.img ]; then
             echo "Error: emergeos.img was not created."
             echo "Current directory contents:"
             ls -la
@@ -135,27 +78,21 @@ jobs:
             exit 1
           fi
           echo "✅ emergeos.img created successfully."
-          ls -la "$IMG_PATH"
-          echo "IMG_PATH: $IMG_PATH"
-          echo "Setting IMAGE_PATH environment variable: $IMG_PATH"
-          echo "IMAGE_PATH=$IMG_PATH" >> $GITHUB_ENV
+          ls -la emergeos.img
 
       - name: Run QEMU and Check Boot
         run: |
-          if [ -z "$IMAGE_PATH" ]; then
-            echo "Error: IMAGE_PATH environment variable not set."
+          if [ ! -f emergeos.img ]; then
+            echo "Error: emergeos.img not found."
             exit 1
           fi
-          if [ ! -f "$IMAGE_PATH" ]; then
-            echo "Error: emergeos.img not found at $IMAGE_PATH."
-            exit 1
-          fi
-          echo "Starting QEMU with emergeos.img at $IMAGE_PATH..."
+          echo "Starting QEMU with emergeos.img..."
           timeout ${{ env.QEMU_TIMEOUT }}s qemu-system-i386 \
-            -fda format=raw,file="$IMAGE_PATH" \
+            -fda format=raw,file=emergeos.img \
             -serial stdio \
-            -display none \
+            -nographic \
             -machine pc \
+            -cpu pentium \
             -m 64M \
             -no-reboot > serial.log 2>&1 || true
 
@@ -188,7 +125,7 @@ jobs:
             boot.bin
             kernel.elf
             kernel.bin
-          if-no-files-found: warn
+        if-no-files-found: warn
 
       - name: Upload Serial Log
         if: always()
