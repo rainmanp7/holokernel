@@ -53,6 +53,7 @@ jobs:
           which qemu-system-i386 && qemu-system-i386 --version | head -1
 
       - name: Build emergeos.img
+        id: build_image
         run: |
           echo "Building emergeos.img with native tools..."
           echo "Using compiler: $(which gcc)"
@@ -63,7 +64,8 @@ jobs:
           fi
           make clean || true
           make emergeos.img || { echo "Error: Make failed"; exit 1; }
-          if [ ! -f emergeos.img ]; then
+          IMG_PATH=$(find . -name "emergeos.img")
+          if [ -z "$IMG_PATH" ]; then
             echo "Error: emergeos.img was not created."
             echo "Current directory contents:"
             ls -la
@@ -72,26 +74,34 @@ jobs:
             exit 1
           fi
           echo "✅ emergeos.img created successfully."
-          ls -la emergeos.img
-          pwd
+          ls -la "$IMG_PATH"
+          echo "IMG_PATH: $IMG_PATH"
+          echo "Setting IMAGE_PATH environment variable: $IMG_PATH"
+          echo "IMAGE_PATH=$IMG_PATH" >> $GITHUB_ENV
 
       - name: Run QEMU and Check Boot
         run: |
-          if [ ! -f emergeos.img ]; then
-            echo "Error: emergeos.img not found."
+          if [ -z "$IMAGE_PATH" ]; then
+            echo "Error: IMAGE_PATH environment variable not set."
             exit 1
           fi
-          echo "Starting QEMU with emergeos.img..."
+          if [ ! -f "$IMAGE_PATH" ]; then
+            echo "Error: emergeos.img not found at $IMAGE_PATH."
+            exit 1
+          fi
+          echo "Starting QEMU with emergeos.img at $IMAGE_PATH..."
           timeout ${{ env.QEMU_TIMEOUT }}s qemu-system-i386 \
-            -fda format=raw,file=emergeos.img \
+            -fda format=raw,file="$IMAGE_PATH" \
             -serial stdio \
             -display none \
             -machine pc \
             -m 64M \
             -no-reboot > serial.log 2>&1 || true
+
           echo "--- Serial Output ---"
           cat serial.log
           echo "---------------------"
+
           if grep -qi "Kernel initialized successfully" serial.log; then
             echo "✅ Boot successful! Kernel initialized."
           else
