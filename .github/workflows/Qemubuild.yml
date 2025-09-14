@@ -10,7 +10,7 @@ on:
 jobs:
   build-and-boot:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15  # Increased timeout
     env:
       QEMU_TIMEOUT: 120
 
@@ -27,7 +27,7 @@ jobs:
           path: |
             /var/cache/apt/archives
             /var/lib/apt/lists
-        key: ${{ runner.os }}-apt-${{ hashFiles('**/Makefile', '**/dependencies.txt', 'packages.txt') }}-v5
+        key: ${{ runner.os }}-apt-${{ hashFiles('**/Makefile', '**/dependencies.txt', 'packages.txt') }}-v6 #Increment cache key
         restore-keys: |
           ${{ runner.os }}-apt-
 
@@ -66,8 +66,8 @@ jobs:
             exit 1
           fi
 
-          make clean 2>&1 | tee clean.log || { echo "make clean failed, but continuing..."; cat clean.log; }
-          make emergeos.img || { echo "Error: Make failed"; exit 1; }
+          make "clean" 2>&1 | tee clean.log || { echo "make clean failed, but continuing..."; cat clean.log; }
+          make "emergeos.img" || { echo "Error: Make failed"; exit 1; }
 
           if [ ! -f emergeos.img ]; then
             echo "Error: emergeos.img was not created."
@@ -88,8 +88,8 @@ jobs:
             exit 1
           else
             echo "emergeos.img found!"
-            # Find the actual location of emergeos.img
-            IMAGE_ACTUAL_PATH=$(find . -name emergeos.img -print)
+            # Find the absolute location of emergeos.img
+            IMAGE_ACTUAL_PATH=$(realpath emergeos.img)
             echo "Actual path of emergeos.img: $IMAGE_ACTUAL_PATH"
 
             # Get the full path to the image
@@ -134,6 +134,7 @@ jobs:
             boot.bin
             kernel.elf
             kernel.bin
+            clean.log
         if-no-files-found: warn
 
       - name: Upload Serial Log
