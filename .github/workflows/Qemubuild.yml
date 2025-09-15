@@ -10,7 +10,7 @@ on:
 jobs:
   build-and-boot:
     runs-on: ubuntu-latest
-    timeout-minutes: 20        # Increased for both emulators
+    timeout-minutes: 20
     env:
       QEMU_TIMEOUT: 120
       BOCHS_TIMEOUT: 120
@@ -47,7 +47,8 @@ jobs:
           which objcopy && objcopy --version
           which nasm && nasm -v
           which qemu-system-i386 && qemu-system-i386 --version
-          which bochs && bochs -v
+          which bochs
+          bochs | head -5
 
       - name: List Source Files
         run: |
