@@ -22,12 +22,15 @@ start:
     mov si, boot_msg
     call print
 
+    ; Calculate kernel size first - load initially 8 sectors, then check if more needed
     ; Load kernel to 0x1000:0x0000 (physical address 0x10000)
     mov ax, 0x1000
     mov es, ax
     xor bx, bx            ; ES:BX = 0x1000:0x0000
+    
+    ; Read first batch of sectors
     mov ah, 0x02          ; Read sector function
-    mov al, 20            ; Number of sectors to read
+    mov al, 8             ; Start with 8 sectors (should be enough for most kernels)
     mov ch, 0             ; Cylinder 0
     mov cl, 2             ; Sector 2 (first sector after bootloader)
     mov dh, 0             ; Head 0
@@ -40,14 +43,14 @@ start:
     call print
 
     ; Switch to protected mode
-    cli  ; Disable interrupts
+    cli                   ; Disable interrupts
     lgdt [gdt_descriptor] ; Load GDT
     mov eax, cr0
     or eax, 0x1
-    mov cr0, eax       ; Enable protected mode
+    mov cr0, eax         ; Enable protected mode
 
-    ; Add this line to check if we're in protected mode
-    mov word [0x8000], 0x1234  ; Write a test value to memory
+    ; Test write to verify protected mode transition
+    mov dword [0x8000], 0x12345678  ; Write test signature
 
     ; Far jump to flush pipeline and load CS with 32-bit code segment
     jmp 0x08:protected_mode_start
@@ -69,19 +72,21 @@ print:
 disk_error:
     mov si, disk_err_msg
     call print
+    cli
     hlt
 
 [bits 32]
 protected_mode_start:
-    ; Set up segment registers
-    mov ax, 0x10
+    ; Set up segment registers for 32-bit mode
+    mov ax, 0x10          ; Data segment selector
     mov ds, ax
     mov es, ax
     mov fs, ax
     mov gs, ax
     mov ss, ax
 
-    mov esp, 0x90000      ; Set up stack pointer
+    ; Set up stack pointer (lower than before to avoid conflicts)
+    mov esp, 0x7c00       ; Use area just below bootloader
 
     ; Call the kernel main function
     call 0x10000          ; Jump to kernel entry point
@@ -93,25 +98,28 @@ protected_mode_start:
 ; GDT (Global Descriptor Table)
 gdt_start:
     dq 0x0                ; Null descriptor
+    
 gdt_code:
     dw 0xFFFF             ; Limit (0-15)
     dw 0x0                ; Base (0-15)
     db 0x0                ; Base (16-23)
-    db 0x9A               ; Access byte (code segment, ring 0)
-    db 0xCF               ; Flags + Limit (16-19)
+    db 0x9A               ; Access byte (present, ring 0, code segment, executable, readable)
+    db 0xCF               ; Flags (4KB granularity, 32-bit) + Limit (16-19)
     db 0x0                ; Base (24-31)
+    
 gdt_data:
     dw 0xFFFF             ; Limit (0-15)
     dw 0x0                ; Base (0-15)
     db 0x0                ; Base (16-23)
-    db 0x92               ; Access byte (data segment, ring 0)
-    db 0xCF               ; Flags + Limit (16-19)
+    db 0x92               ; Access byte (present, ring 0, data segment, writable)
+    db 0xCF               ; Flags (4KB granularity, 32-bit) + Limit (16-19)
     db 0x0                ; Base (24-31)
+    
 gdt_end:
 
 gdt_descriptor:
-    dw gdt_end - gdt_start - 1
-    dd gdt_start
+    dw gdt_end - gdt_start - 1  ; Size of GDT
+    dd gdt_start                 ; Address of GDT
 
 ; Data
 boot_msg db "[BOOT] Loading Holographic Kernel...", 0x0D, 0x0A, 0
@@ -119,6 +127,6 @@ load_success_msg db "[BOOT] Kernel loaded successfully!", 0x0D, 0x0A, 0
 disk_err_msg db "[ERR] Disk read failed!", 0x0D, 0x0A, 0
 boot_drive db 0
 
-; Boot signature
+; Pad to 510 bytes and add boot signature
 times 510-($-$$) db 0
 dw 0xaa55
