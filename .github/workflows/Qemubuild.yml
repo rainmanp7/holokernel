@@ -91,16 +91,19 @@ jobs:
           # Give the system a moment before starting QEMU
           sleep 2
 
-          # Run QEMU with timeout
+          # Run QEMU with proper configuration to avoid stdio conflicts
           timeout "${QEMU_TIMEOUT}"s qemu-system-i386 \
-            -fda emergeos.img \
-            -serial stdio \
+            -drive format=raw,file=emergeos.img,if=floppy,index=0 \
+            -serial file:serial.log \
             -nographic \
             -machine pc \
             -cpu pentium \
             -m 64M \
             -no-reboot \
-            -display none > serial.log 2>&1 || echo "QEMU exited (expected)"
+            -monitor none \
+            -parallel none \
+            -soundhw none \
+            -vga none || echo "QEMU exited (expected)"
 
           echo "--- QEMU Serial Output ---"
           if [ -f serial.log ] && [ -s serial.log ]; then
