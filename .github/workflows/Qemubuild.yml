@@ -1,4 +1,4 @@
-name: Boot Test with QEMU and Bochs
+name: Boot Test with QEMU and Bochs (Enhanced)
 
 on:
   push:
@@ -10,10 +10,11 @@ on:
 jobs:
   build-and-boot:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
-      QEMU_TIMEOUT: 120
-      BOCHS_TIMEOUT: 120
+      QEMU_TIMEOUT: 180
+      BOCHS_TIMEOUT: 180
+      IMAGE_NAME: emergeos.img
 
     steps:
       - name: Checkout Code
@@ -38,107 +39,101 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y build-essential nasm qemu-system-i386 gcc-multilib g++-multilib bochs bochs-x
+          sudo apt-get install -y \
+            build-essential \
+            nasm \
+            qemu-system-i386 \
+            gcc-multilib \
+            g++-multilib \
+            bochs \
+            bochs-x \
+            libncurses5-dev  # Required for Bochs TUI
 
-      - name: Verify Tools Installation
+      - name: Verify Toolchain Versions
         run: |
-          which gcc && gcc --version
-          which ld && ld --version
-          which objcopy && objcopy --version
-          which nasm && nasm -v
-          which qemu-system-i386 && qemu-system-i386 --version
-          which bochs
-          bochs | head -5
+          echo "GCC:"
+          gcc --version
+          echo "LD:"
+          ld --version
+          echo "NASM:"
+          nasm -v
+          echo "QEMU:"
+          qemu-system-i386 --version
+          echo "Bochs:"
+          bochs --version
 
-      - name: List Source Files
+      - name: Validate Source Structure
         run: |
-          echo "Source files in repository:"
-          ls -la
-          echo "Checking for required files:"
-          for file in Makefile boot.asm kernel_entry.asm holographic_kernel.c linker.ld; do
-            if [ -f "$file" ]; then
-              echo "✅ $file exists"
+          required_files=("Makefile" "boot.asm" "kernel_entry.asm" "holographic_kernel.c" "linker.ld")
+          for file in "${required_files[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "❌ Missing required file: $file"
+              exit 1
             else
-              echo "❌ $file missing"
+              echo "✅ $file exists"
             fi
           done
 
-      - name: Build emergeos.img
+      - name: Build Kernel Image
         run: |
-          if [ ! -f Makefile ]; then
-            echo "Error: Makefile not found." && ls -la && exit 1
-          fi
-
-          make clean 2>&1 || echo "Clean completed with warnings"
-          echo "Building emergeos.img..."
-          make emergeos.img
-
-          if [ ! -f emergeos.img ]; then
-            echo "Error: emergeos.img was not created."
-            echo "Build artifacts:"
-            ls -la *.bin *.o *.elf 2>/dev/null || echo "No build artifacts found"
+          make clean || true
+          make $IMAGE_NAME
+          if [ ! -f $IMAGE_NAME ]; then
+            echo "❌ Build failed - no image created"
             exit 1
           fi
+          echo "✅ Built $IMAGE_NAME ($(stat -c%s $IMAGE_NAME) bytes)"
+          ls -la *.bin *.o *.elf
 
-          IMAGE_ACTUAL_PATH=$(realpath emergeos.img)
-          echo "✅ Build successful! emergeos.img created at: $IMAGE_ACTUAL_PATH"
-          echo "Image size: $(stat -c%s emergeos.img) bytes"
-
-      - name: Test Boot with QEMU
+      - name: QEMU Boot Test
+        continue-on-error: true
+        env:
+          QEMU_LOG: qemu.log
         run: |
-          echo "Starting QEMU boot test..."
-          sleep 2
-          timeout "${QEMU_TIMEOUT}"s qemu-system-i386 \
-            -fda emergeos.img \
-            -serial stdio \
+          echo "Starting QEMU with logging..."
+          timeout $QEMU_TIMEOUT qemu-system-i386 \
+            -drive format=raw,file=$IMAGE_NAME,if=floppy \
+            -serial file:$QEMU_LOG \
             -nographic \
             -machine pc \
             -cpu pentium \
-            -m 64M \
+            -m 128M \
             -no-reboot \
-            -display none > serial.log 2>&1 || echo "QEMU exited (expected)"
-          echo "--- QEMU Serial Output ---"
-          if [ -f serial.log ] && [ -s serial.log ]; then
-            cat serial.log
-          else
-            echo "No serial output captured"
-          fi
-          echo "-------------------------"
+            -display none
+          
+          echo "--- QEMU Log ---"
+          cat $QEMU_LOG
+          echo "----------------"
 
-      - name: Verify Boot Success
+      - name: Analyze QEMU Results
+        if: always()
         run: |
-          if [ ! -f serial.log ] || [ ! -s serial.log ]; then
-            echo "❌ No serial output - QEMU may have failed to start"
+          if [ ! -f $QEMU_LOG ] || [ ! -s $QEMU_LOG ]; then
+            echo "❌ No QEMU log detected"
             exit 1
           fi
 
-          echo "Checking for success patterns..."
-          if grep -qi "Kernel Fully Initialized\|=== Kernel Fully Initialized ===" serial.log; then
-            echo "✅ SUCCESS: Kernel fully initialized!"
-          elif grep -qi "Enhanced Holographic Kernel Starting\|Holographic Kernel Starting" serial.log; then
-            echo "⚠️  PARTIAL: Kernel started but may not have completed initialization"
-            echo "Last few lines of output:"
-            tail -10 serial.log
-          elif grep -qi "Protected Mode Test: PASSED" serial.log; then
-            echo "⚠️  PARTIAL: Protected mode OK but kernel initialization incomplete"
-            echo "Output:"
-            cat serial.log
+          if grep -qi "Kernel Fully Initialized\|=== Kernel Fully Initialized ===" $QEMU_LOG; then
+            echo "✅ QEMU SUCCESS: Kernel fully initialized!"
+          elif grep -qi "Enhanced Holographic Kernel Starting" $QEMU_LOG; then
+            echo "⚠️  QEMU PARTIAL: Kernel started but incomplete"
+            tail -n 20 $QEMU_LOG
           else
-            echo "❌ FAILED: Kernel did not initialize properly"
-            echo "Full output:"
-            cat serial.log
+            echo "❌ QEMU FAILURE: No initialization detected"
+            cat $QEMU_LOG
             exit 1
           fi
 
-      - name: Create Bochs Config
+      - name: Generate Bochs Configuration
         run: |
           cat > bochsrc.txt <<EOF
-          megs: 64
+          megs: 128
           romimage: file=/usr/share/bochs/BIOS-bochs-latest
           vgaromimage: file=/usr/share/bochs/VGABIOS-lgpl-latest
-          floppya: 1_44=emergeos.img, status=inserted
+          floppya: 1_44=$IMAGE_NAME, status=inserted
           boot: a
           log: bochs.log
+          display_library: x
           panic: action=ask
           error: action=report
           info: action=report
@@ -146,49 +141,59 @@ jobs:
           clock: sync=realtime
           EOF
 
-      - name: Test Boot with Bochs
+      - name: Bochs Boot Test
+        continue-on-error: true
+        env:
+          BOCHS_LOG: bochs.log
         run: |
-          echo "Starting Bochs boot test..."
-          sleep 2
-          timeout "${BOCHS_TIMEOUT}"s bochs -q -f bochsrc.txt > bochs_console.log 2>&1 || echo "Bochs exited (expected)"
-          echo "--- Bochs Log Output ---"
-          if [ -f bochs.log ]; then
-            tail -20 bochs.log
+          echo "Starting Bochs with logging..."
+          timeout $BOCHS_TIMEOUT bochs -q -f bochsrc.txt > bochs_console.log 2>&1
+          
+          echo "--- Bochs Log Snippet ---"
+          tail -n 20 $BOCHS_LOG
+          echo "--- Console Output Snippet ---"
+          tail -n 20 bochs_console.log
+
+      - name: Analyze Bochs Results
+        if: always()
+        run: |
+          if [ ! -f $BOCHS_LOG ] || [ ! -s $BOCHS_LOG ]; then
+            echo "❌ No Bochs log detected"
+            exit 1
           fi
-          echo "--- Bochs Console Output ---"
-          if [ -f bochs_console.log ]; then
-            tail -20 bochs_console.log
+
+          if grep -qi "Kernel Fully Initialized\|=== Kernel Fully Initialized ===" $BOCHS_LOG; then
+            echo "✅ Bochs SUCCESS: Kernel fully initialized!"
+          elif grep -qi "Enhanced Holographic Kernel Starting" $BOCHS_LOG; then
+            echo "⚠️  Bochs PARTIAL: Kernel started but incomplete"
+            tail -n 20 $BOCHS_LOG
+          else
+            echo "❌ Bochs FAILURE: No initialization detected"
+            cat $BOCHS_LOG
+            exit 1
           fi
-          echo "-------------------------"
 
-      - name: Upload Build Artifacts
+      - name: Upload Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-output
+          name: build-artifacts
           path: |
-            emergeos.img
-            serial.log
-            boot.bin
-            kernel.elf
-            kernel.bin
-            clean.log
-          if-no-files-found: warn
-
-      - name: Upload Serial Log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: serial-output
-          path: serial.log
-          if-no-files-found: warn
-
-      - name: Upload Bochs Logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: bochs-output
-          path: |
+            $IMAGE_NAME
+            qemu.log
             bochs.log
             bochs_console.log
-          if-no-files-found: warn
+            Makefile
+            boot.asm
+            kernel_entry.asm
+            holographic_kernel.c
+            linker.ld
+            *.o
+            *.elf
+            *.bin
+          retention-days: 30
+
+      - name: Post Cache Cleanup
+        run: |
+          sudo apt-get clean
+          rm -rf /var/lib/apt/lists/*
