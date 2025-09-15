@@ -87,14 +87,16 @@ jobs:
             # Add a delay to ensure the image is fully written
             sleep 4
 
+            # FIXED: Use tee instead of output redirection to avoid stdio conflicts
             timeout ${{ env.QEMU_TIMEOUT }}s qemu-system-i386 \
               -fda "$IMAGE_ACTUAL_PATH" \
+              -format raw \
               -serial stdio \
               -nographic \
               -machine pc \
               -cpu pentium \
               -m 64M \
-              -no-reboot > serial.log 2>&1 || true
+              -no-reboot | tee serial.log || true
 
             echo "--- Serial Output ---"
             cat serial.log
