@@ -66,10 +66,7 @@ jobs:
             echo "Error: Makefile not found." && ls -la && exit 1
           fi
 
-          # Clean with error handling
           make clean 2>&1 || echo "Clean completed with warnings"
-          
-          # Build the image
           echo "Building emergeos.img..."
           make emergeos.img
 
@@ -84,27 +81,37 @@ jobs:
           echo "✅ Build successful! emergeos.img created at: $IMAGE_ACTUAL_PATH"
           echo "Image size: $(stat -c%s emergeos.img) bytes"
 
+      - name: Check Floppy Image Size and Boot Signature
+        run: |
+          if [ "$(stat -c%s emergeos.img)" != "1474560" ]; then
+            echo "❌ emergeos.img is not 1.44MB! Got $(stat -c%s emergeos.img) bytes."
+            exit 1
+          fi
+          dd if=emergeos.img bs=1 skip=510 count=2 2>/dev/null | hexdump -C
+          sig1=$(dd if=emergeos.img bs=1 skip=510 count=1 2>/dev/null | od -An -tx1 | tr -d ' ')
+          sig2=$(dd if=emergeos.img bs=1 skip=511 count=1 2>/dev/null | od -An -tx1 | tr -d ' ')
+          if [ "$sig1" != "55" ] || [ "$sig2" != "aa" ]; then
+            echo "❌ Boot sector signature (0x55AA) missing!"
+            exit 1
+          fi
+          echo "✅ Floppy image size and boot signature are correct."
+
       - name: Test Boot with QEMU
         run: |
           echo "Starting QEMU boot test..."
-          
-          # Give the system a moment before starting QEMU
           sleep 2
-
-          # Run QEMU with proper configuration to avoid stdio conflicts
           timeout "${QEMU_TIMEOUT}"s qemu-system-i386 \
-            -drive format=raw,file=emergeos.img,if=floppy,index=0 \
-            -serial file:serial.log \
+            -fda emergeos.img \
+            -serial stdio \
             -nographic \
             -machine pc \
             -cpu pentium \
             -m 64M \
             -no-reboot \
-            -monitor none \
-            -parallel none \
-            -soundhw none \
-            -vga none || echo "QEMU exited (expected)"
-
+            -d int,guest_errors \
+            -D qemu-debug.log \
+            -display none > serial.log 2>&1
+          echo "QEMU exit code: $?"
           echo "--- QEMU Serial Output ---"
           if [ -f serial.log ] && [ -s serial.log ]; then
             cat serial.log
@@ -150,6 +157,14 @@ jobs:
             kernel.elf
             kernel.bin
             clean.log
+          if-no-files-found: warn
+
+      - name: Upload QEMU Debug Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-debug
+          path: qemu-debug.log
           if-no-files-found: warn
 
       - name: Upload Serial Log
