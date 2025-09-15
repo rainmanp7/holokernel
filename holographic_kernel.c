@@ -1,53 +1,38 @@
-// Type definitions to replace <stdint.h> under -nostdinc
-typedef unsigned char   uint8_t;
-typedef unsigned short  uint16_t;
-typedef unsigned int    uint32_t;
+// Type definitions to replace <stdint.h> under -nostdinctypedef unsigned char   uint8_t;typedef unsigned short  uint16_t;typedef unsigned int    uint32_t;
 
-// Enhanced Holographic Memory Configuration
-#define HOLOGRAPHIC_DIMENSIONS 512
-#define HOLOGRAPHIC_MEMORY_BASE 0xA0000
-#define HOLOGRAPHIC_MEMORY_SIZE 0x10000
-#define MAX_MEMORY_ENTRIES 64
-#define ENTITY_COUNT 4
-#define TEST_MEMORY_LOCATION 0x80000
+// Enhanced Holographic Memory Configuration#define HOLOGRAPHIC_DIMENSIONS 512#define HOLOGRAPHIC_MEMORY_BASE 0xA0000#define HOLOGRAPHIC_MEMORY_SIZE 0x10000#define MAX_MEMORY_ENTRIES 64#define ENTITY_COUNT 4#define TEST_MEMORY_LOCATION 0x80000
 
-// Video Memory
-#define VIDEO_MEMORY 0xb8000
+// Video Memory#define VIDEO_MEMORY 0xb8000
 
-// Entity types
-typedef enum {
+// Entity typestypedef enum {
     ENTITY_CPU = 0,
     ENTITY_MEMORY = 1,
     ENTITY_DEVICE = 2,
     ENTITY_FILESYSTEM = 3
 } EntityType;
 
-// Task structure
-typedef struct {
+// Task structuretypedef struct {
     EntityType target_entity;
     uint32_t task_id;
     uint32_t data[4];
     uint8_t valid;
 } Task;
 
-// Enhanced holographic vector
-typedef struct {
+// Enhanced holographic vectortypedef struct {
     float data[HOLOGRAPHIC_DIMENSIONS];
     uint32_t hash_signature;
     uint16_t active_dimensions;
     uint8_t valid;
 } HolographicVector;
 
-// Memory entry
-typedef struct {
+// Memory entrytypedef struct {
     HolographicVector input_pattern;
     HolographicVector output_pattern;
     uint32_t timestamp;
     uint8_t valid;
 } MemoryEntry;
 
-// Entity structure
-struct Entity {
+// Entity structurestruct Entity {
     EntityType type;
     uint32_t id;
     HolographicVector position;
@@ -55,58 +40,36 @@ struct Entity {
     uint32_t tasks_processed;
 };
 
-// Hardware Info Struct
-struct HardwareInfo {
+// Hardware Info Structstruct HardwareInfo {
     char cpu_vendor[13];
     uint32_t cpu_features;
     uint32_t memory_kb;
     int device_count;
 };
 
-// Global holographic memory system
-struct HolographicSystem {
+// Global holographic memory systemstruct HolographicSystem {
     MemoryEntry memory_pool[MAX_MEMORY_ENTRIES];
     uint32_t memory_count;
     uint32_t global_timestamp;
 } holo_system;
 
-// Global variables
-struct Entity core_entities[ENTITY_COUNT];
-struct HardwareInfo hw_info;
+// Global variablesstruct Entity core_entities[ENTITY_COUNT];struct HardwareInfo hw_info;
 
-// Add this function to check if we're in protected mode
-uint32_t check_protected_mode() {
+// Add this function to check if we're in protected modeuint32_t check_protected_mode() {
     uint32_t cr0;
     __asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
     return cr0 & 0x1;
 }
 
-//---Function Prototypes---
-void print_char(char c, uint8_t color);
-void print(const char* str);
-void print_hex(uint32_t value);
-void print_debug(const char* message);
-void kmain();
-uint32_t hash_data(const void* input, uint32_t size);
-HolographicVector create_holographic_vector(const void* input, uint32_t size);
-void encode_holographic_memory(HolographicVector* input, HolographicVector* output);
-HolographicVector* retrieve_holographic_memory(uint32_t hash);
-void initialize_holographic_memory();
-void initialize_core_entities();
-void verify_holographic_memory();
-void probe_hardware();
-void set_memory_value(uint32_t address, uint8_t value);
-uint8_t get_memory_value(uint32_t address);
+//---Function Prototypes---void print_char(char c, uint8_t color);void print(const char* str);void print_hex(uint32_t value);void print_debug(const char* message);void kmain();uint32_t hash_data(const void* input, uint32_t size);HolographicVector create_holographic_vector(const void* input, uint32_t size);void encode_holographic_memory(HolographicVector* input, HolographicVector* output);HolographicVector* retrieve_holographic_memory(uint32_t hash);void initialize_holographic_memory();void initialize_core_entities();void verify_holographic_memory();void probe_hardware();void set_memory_value(uint32_t address, uint8_t value);uint8_t get_memory_value(uint32_t address);
 
-//---Debug function---
-void print_debug(const char* message) {
+//---Debug function---void print_debug(const char* message) {
     print("[DEBUG] ");
     print(message);
     print("\n");
 }
 
-//---Kernel starting point---
-void kmain() {
+//---Kernel starting point---void kmain() {
     // Add this to check protected mode
     uint16_t test_value = *(uint16_t*)0x8000;
     if (test_value == 0x1234) {
@@ -133,17 +96,21 @@ void kmain() {
     print_debug("Protected mode check passed");
     print("Enhanced Holographic Kernel Starting...\n");
     print_debug("Kernel initialization begun");
-    print("Initializing high-dimensional memory system...\n");
+
+    // Add debug print here to check if initialization is called
+    print("[DEBUG] Initializing high-dimensional memory system...\n");
 
     // Initialize holographic memory system
     initialize_holographic_memory();
     print_debug("Holographic memory initialized");
 
     // Initialize entities
+    print("[DEBUG] Initializing core entities...\n");
     initialize_core_entities();
     print_debug("Core entities initialized");
 
     // Test holographic memory
+    print("[DEBUG] Verifying holographic memory...\n");
     verify_holographic_memory();
     print_debug("Holographic memory verified");
 
@@ -161,8 +128,7 @@ void kmain() {
     }
 }
 
-//---Hash function (FNV-1a)---
-uint32_t hash_data(const void* input, uint32_t size) {
+//---Hash function (FNV-1a)---uint32_t hash_data(const void* input, uint32_t size) {
     const uint8_t* data = (const uint8_t*)input;
     uint32_t hash = 2166136261U;
     for (uint32_t i = 0; i < size; i++) {
@@ -172,8 +138,7 @@ uint32_t hash_data(const void* input, uint32_t size) {
     return hash;
 }
 
-//---Holographic Memory Functions---
-HolographicVector create_holographic_vector(const void* input, uint32_t size) {
+//---Holographic Memory Functions---HolographicVector create_holographic_vector(const void* input, uint32_t size) {
     HolographicVector vector = {0};
     vector.hash_signature = hash_data(input, size);
     vector.valid = 1;
@@ -207,7 +172,10 @@ void encode_holographic_memory(HolographicVector* input, HolographicVector* outp
 }
 
 HolographicVector* retrieve_holographic_memory(uint32_t hash) {
-    for (int i = 0; i < holo_system.memory_count; i++) {
+    // Fixed signed/unsigned comparison here
+    // Convert holo_system.memory_count to int for comparison
+    int memory_count = (int)holo_system.memory_count;
+    for (int i = 0; i < memory_count; i++) {
         if (holo_system.memory_pool[i].valid && holo_system.memory_pool[i].input_pattern.hash_signature == hash) {
             return &holo_system.memory_pool[i].output_pattern;
         }
@@ -227,8 +195,7 @@ void initialize_holographic_memory() {
     print(" dimensions available\n");
 }
 
-//---Entity Functions---
-void initialize_core_entities() {
+//---Entity Functions---void initialize_core_entities() {
     print("Creating entities in holographic space...\n");
 
     // CPU Entity
@@ -277,14 +244,11 @@ void verify_holographic_memory() {
 
     char test_input[] = "TEST_PATTERN";
     char test_output[] = "EXPECTED_RESULT";
-
     HolographicVector input_vector = create_holographic_vector(test_input, sizeof(test_input));
     HolographicVector output_vector = create_holographic_vector(test_output, sizeof(test_output));
-
     encode_holographic_memory(&input_vector, &output_vector);
 
     HolographicVector* retrieved = retrieve_holographic_memory(input_vector.hash_signature);
-
     if (retrieved) {
         print("Holographic Memory Test 1: SUCCESS - Pattern retrieved\n");
         print("  Active dimensions: ");
@@ -313,8 +277,7 @@ void probe_hardware() {
     print(" entities active\n");
 }
 
-//---Memory Management Functions---
-void set_memory_value(uint32_t address, uint8_t value) {
+//---Memory Management Functions---void set_memory_value(uint32_t address, uint8_t value) {
     uint8_t *ptr = (uint8_t *)address;
     *ptr = value;
 }
@@ -324,8 +287,7 @@ uint8_t get_memory_value(uint32_t address) {
     return *ptr;
 }
 
-//---Video Functions---
-void print_char(char c, uint8_t color) {
+//---Video Functions---void print_char(char c, uint8_t color) {
     volatile char* video = (volatile char*)VIDEO_MEMORY;
     static int position = 0;
 
@@ -352,6 +314,7 @@ void print(const char* str) {
 void print_hex(uint32_t value) {
     char hex_digits[] = "0123456789ABCDEF";
     char buffer[9];
+
     for (int i = 7; i >= 0; i--) {
         buffer[7-i] = hex_digits[(value >> (i*4)) & 0xF];
     }
