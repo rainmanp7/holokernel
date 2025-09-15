@@ -1,5 +1,4 @@
 ; boot.asm
-
 [org 0x7c00]
 [bits 16]
 
@@ -27,7 +26,6 @@ start:
     mov ax, 0x1000
     mov es, ax
     xor bx, bx            ; ES:BX = 0x1000:0x0000
-
     mov ah, 0x02          ; Read sector function
     mov al, 20            ; Number of sectors to read
     mov ch, 0             ; Cylinder 0
@@ -59,7 +57,7 @@ print:
     pusha
 .print_loop:
     lodsb
-    or al, al
+    or al, al ; Check if AL is zero.
     jz .done
     mov ah, 0x0e
     int 0x10
@@ -82,6 +80,7 @@ protected_mode_start:
     mov fs, ax
     mov gs, ax
     mov ss, ax
+
     mov esp, 0x90000      ; Set up stack pointer
 
     ; Call the kernel main function
@@ -94,7 +93,6 @@ protected_mode_start:
 ; GDT (Global Descriptor Table)
 gdt_start:
     dq 0x0                ; Null descriptor
-
 gdt_code:
     dw 0xFFFF             ; Limit (0-15)
     dw 0x0                ; Base (0-15)
@@ -102,7 +100,6 @@ gdt_code:
     db 0x9A               ; Access byte (code segment, ring 0)
     db 0xCF               ; Flags + Limit (16-19)
     db 0x0                ; Base (24-31)
-
 gdt_data:
     dw 0xFFFF             ; Limit (0-15)
     dw 0x0                ; Base (0-15)
@@ -110,7 +107,6 @@ gdt_data:
     db 0x92               ; Access byte (data segment, ring 0)
     db 0xCF               ; Flags + Limit (16-19)
     db 0x0                ; Base (24-31)
-
 gdt_end:
 
 gdt_descriptor:
