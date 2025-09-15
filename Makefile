@@ -8,7 +8,7 @@ QEMU = qemu-system-i386
 # Flags
 ASMFLAGS = -f bin
 ASMFLAGS_ELF = -f elf32
-CFLAGS = -c -ffreestanding -fno-pie -nostdlib -O1 -Wall -Wextra
+CFLAGS = -c -ffreestanding -fno-pie -nostdlib -O1 -Wall -Wextra -fno-stack-protector
 LDFLAGS = -T linker.ld -nostdlib
 
 # Output files
@@ -32,6 +32,7 @@ all: $(DISK_IMAGE)
 # Rule to build bootloader
 $(BOOTLOADER): $(BOOT_SRC)
 	$(ASM) $(ASMFLAGS) $< -o $@
+	@echo "Bootloader size: $$(stat -c%s $(BOOTLOADER)) bytes"
 
 # Rule to build kernel entry object
 $(KERNEL_ENTRY_OBJ): $(KERNEL_ENTRY_SRC)
@@ -48,20 +49,30 @@ $(KERNEL_ELF): $(KERNEL_ENTRY_OBJ) $(KERNEL_OBJ)
 # Rule to convert ELF to binary
 $(KERNEL_BIN): $(KERNEL_ELF)
 	$(OBJCOPY) -O binary $< $@
+	@echo "Kernel size: $$(stat -c%s $(KERNEL_BIN)) bytes"
+	@echo "Sectors needed: $$((($$(stat -c%s $(KERNEL_BIN)) + 511) / 512))"
 
 # Rule to create disk image
 $(DISK_IMAGE): $(BOOTLOADER) $(KERNEL_BIN)
-	dd if=/dev/zero of=$@ bs=512 count=2880
-	dd if=$(BOOTLOADER) of=$@ conv=notrunc
-	dd if=$(KERNEL_BIN) of=$@ seek=1 conv=notrunc
+	# Create 1.44MB floppy image
+	dd if=/dev/zero of=$@ bs=512 count=2880 status=none
+	# Copy bootloader to first sector
+	dd if=$(BOOTLOADER) of=$@ conv=notrunc status=none
+	# Copy kernel starting at sector 2 (after bootloader)
+	dd if=$(KERNEL_BIN) of=$@ seek=1 conv=notrunc status=none
+	@echo "Disk image created: $(DISK_IMAGE)"
 
-# Run the OS in QEMU
+# Run the OS in QEMU with debugging
 run: $(DISK_IMAGE)
-	$(QEMU) -fda $< -format raw -nographic -machine pc -cpu pentium -m 64M -no-reboot -S -s  # Changed line
+	$(QEMU) -fda $< -format raw -serial stdio -nographic -machine pc -cpu pentium -m 64M -no-reboot
+
+# Run with GDB debugging
+debug: $(DISK_IMAGE)
+	$(QEMU) -fda $< -format raw -serial stdio -nographic -machine pc -cpu pentium -m 64M -no-reboot -S -s
 
 # Clean build artifacts
-clean:
+clean: > clean.log 2>&1 || true
 	rm -f *.bin *.o *.elf *.img
 
 # Phony targets
-.PHONY: all run clean
+.PHONY: all run debug clean
