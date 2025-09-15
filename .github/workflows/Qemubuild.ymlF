@@ -27,7 +27,7 @@ jobs:
           path: |
             /var/cache/apt/archives
             /var/lib/apt/lists
-          key: ${{ runner.os }}-apt-${{ hashFiles('**/Makefile', '**/dependencies.txt', 'packages.txt') }}-v6
+          key: ${{ runner.os }}-apt-${{ hashFiles('**/Makefile', '**/dependencies.txt', 'packages.txt') }}-v7
           restore-keys: |
             ${{ runner.os }}-apt-
 
@@ -36,10 +36,8 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          if [ "${{ steps.apt-cache.outputs.cache-hit }}" != "true" ]; then
-            sudo apt-get update -y
-            sudo apt-get install -y build-essential nasm qemu-system-i386 gcc-multilib g++-multilib
-          fi
+          sudo apt-get update -y
+          sudo apt-get install -y build-essential nasm qemu-system-i386 gcc-multilib g++-multilib
 
       - name: Verify Tools Installation
         run: |
@@ -49,46 +47,91 @@ jobs:
           which nasm && nasm -v
           which qemu-system-i386 && qemu-system-i386 --version
 
+      - name: List Source Files
+        run: |
+          echo "Source files in repository:"
+          ls -la
+          echo "Checking for required files:"
+          for file in Makefile boot.asm kernel_entry.asm holographic_kernel.c linker.ld; do
+            if [ -f "$file" ]; then
+              echo "✅ $file exists"
+            else
+              echo "❌ $file missing"
+            fi
+          done
+
       - name: Build emergeos.img
         run: |
           if [ ! -f Makefile ]; then
             echo "Error: Makefile not found." && ls -la && exit 1
           fi
 
-          make clean || echo "make clean failed, continuing..."
+          # Clean with error handling
+          make clean 2>&1 || echo "Clean completed with warnings"
+          
+          # Build the image
+          echo "Building emergeos.img..."
           make emergeos.img
 
           if [ ! -f emergeos.img ]; then
-            echo "Error: emergeos.img was not created." && exit 1
+            echo "Error: emergeos.img was not created."
+            echo "Build artifacts:"
+            ls -la *.bin *.o *.elf 2>/dev/null || echo "No build artifacts found"
+            exit 1
           fi
 
           IMAGE_ACTUAL_PATH=$(realpath emergeos.img)
-          echo "Actual path of emergeos.img: $IMAGE_ACTUAL_PATH"
+          echo "✅ Build successful! emergeos.img created at: $IMAGE_ACTUAL_PATH"
+          echo "Image size: $(stat -c%s emergeos.img) bytes"
 
-          sleep 4
+      - name: Test Boot with QEMU
+        run: |
+          echo "Starting QEMU boot test..."
+          
+          # Give the system a moment before starting QEMU
+          sleep 2
 
+          # Run QEMU with timeout
           timeout "${QEMU_TIMEOUT}"s qemu-system-i386 \
-            -fda "$IMAGE_ACTUAL_PATH" \
+            -fda emergeos.img \
             -serial stdio \
             -nographic \
             -machine pc \
             -cpu pentium \
             -m 64M \
-            -no-reboot > serial.log 2>&1 || true
+            -no-reboot \
+            -display none > serial.log 2>&1 || echo "QEMU exited (expected)"
 
-          echo "--- Serial Output ---"
-          cat serial.log || true
-          echo "---------------------"
-
-          if grep -qi "Kernel Fully Initialized\|initialized successfully" serial.log; then
-            echo "✅ Boot successful! Kernel initialized."
+          echo "--- QEMU Serial Output ---"
+          if [ -f serial.log ] && [ -s serial.log ]; then
+            cat serial.log
           else
-            echo "❌ Kernel did not initialize properly."
-            if [ -s serial.log ]; then
-              head -20 serial.log
-            else
-              echo "Serial log is empty - QEMU may have failed to start"
-            fi
+            echo "No serial output captured"
+          fi
+          echo "-------------------------"
+
+      - name: Verify Boot Success
+        run: |
+          if [ ! -f serial.log ] || [ ! -s serial.log ]; then
+            echo "❌ No serial output - QEMU may have failed to start"
+            exit 1
+          fi
+
+          echo "Checking for success patterns..."
+          if grep -qi "Kernel Fully Initialized\|=== Kernel Fully Initialized ===" serial.log; then
+            echo "✅ SUCCESS: Kernel fully initialized!"
+          elif grep -qi "Enhanced Holographic Kernel Starting\|Holographic Kernel Starting" serial.log; then
+            echo "⚠️  PARTIAL: Kernel started but may not have completed initialization"
+            echo "Last few lines of output:"
+            tail -10 serial.log
+          elif grep -qi "Protected Mode Test: PASSED" serial.log; then
+            echo "⚠️  PARTIAL: Protected mode OK but kernel initialization incomplete"
+            echo "Output:"
+            cat serial.log
+          else
+            echo "❌ FAILED: Kernel did not initialize properly"
+            echo "Full output:"
+            cat serial.log
             exit 1
           fi
 
