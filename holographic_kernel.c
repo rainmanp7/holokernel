@@ -14,7 +14,7 @@ typedef unsigned int    uint32_t;
 #define HOLOGRAPHIC_MEMORY_SIZE 0x10000
 #define MAX_MEMORY_ENTRIES 64
 #define ENTITY_COUNT 4
-#define TEST_MEMORY_LOCATION 0x80000
+#define TEST_MEMORY_LOCATION 0x8000  // Fixed: was 0x80000, now matches boot.asm
 
 // Video Memory
 #define VIDEO_MEMORY 0xb8000
@@ -79,7 +79,7 @@ struct HolographicSystem {
 struct Entity core_entities[ENTITY_COUNT];
 struct HardwareInfo hw_info;
 
-// Add this function to check if we're in protected mode
+// Check if we're in protected mode
 uint32_t check_protected_mode() {
     uint32_t cr0;
     __asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
@@ -119,61 +119,107 @@ uint32_t strlen(const char* str) {
     return len;
 }
 
+//---Video Functions---
+
+// Video state (to maintain cursor position)
+struct {
+    uint32_t video_memory;
+    int position;
+} video_state = {VIDEO_MEMORY, 0};
+
+void print_char(char c, uint8_t color) {
+    volatile char* video = (volatile char*)video_state.video_memory;
+
+    if (c == '\n') {
+        video_state.position = ((video_state.position / 80) + 1) * 80;
+    } else {
+        video[video_state.position * 2] = c;
+        video[video_state.position * 2 + 1] = color;
+        video_state.position++;
+    }
+
+    if (video_state.position >= 80 * 25) {
+        video_state.position = 0;
+    }
+}
+
+void print(const char* str) {
+    while (*str != 0) {
+        print_char(*str, 0x0f);
+        str++;
+    }
+}
+
+void print_hex(uint32_t value) {
+    char hex_digits[] = "0123456789ABCDEF";
+    char buffer[9];
+
+    for (int i = 7; i >= 0; i--) {
+        buffer[7-i] = hex_digits[(value >> (i*4)) & 0xF];
+    }
+    buffer[8] = '\0';
+    print("0x");
+    print(buffer);
+}
+
 //---Kernel starting point---
 void kmain() {
-    // Add this to check protected mode
-    uint16_t test_value = *(uint16_t*)0x8000;
-    if (test_value == 0x1234) {
-        print("[DEBUG] Protected Mode Test: PASSED\n");
+    // Clear screen first
+    volatile char* video = (volatile char*)0xb8000;
+    for (int i = 0; i < 80 * 25 * 2; i += 2) {
+        video[i] = ' ';
+        video[i + 1] = 0x0f;
+    }
+    video_state.position = 0; // Reset cursor
+
+    // Check protected mode with the correct test signature
+    uint32_t test_value = *(uint32_t*)TEST_MEMORY_LOCATION;
+    if (test_value == 0x12345678) {
+        print_debug("Protected Mode Test: PASSED");
     } else {
-        print("[DEBUG] Protected Mode Test: FAILED\n");
-        print("[DEBUG] Value at 0x8000: 0x");
+        print_debug("Protected Mode Test: FAILED");
+        print("Expected: 0x12345678, Got: ");
         print_hex(test_value);
         print("\n");
     }
 
     // Check if we're in protected mode
     if (!check_protected_mode()) {
-        // If not, display an error
-        volatile char* video = (volatile char*)0xb8000;
-        video[0] = 'E'; video[1] = 0x4F;
-        video[2] = 'R'; video[3] = 0x4F;
-        video[4] = 'R'; video[5] = 0x4F;
-        video[6] = 'O'; video[7] = 0x4F;
-        video[8] = 'R'; video[9] = 0x4F;
-        while (1) {}
+        print("ERROR: Not in protected mode!\n");
+        while (1) {
+            __asm__ volatile("hlt");
+        }
     }
 
     print_debug("Protected mode check passed");
-    print("Enhanced Holographic Kernel Starting...\n");
+    print("=== Enhanced Holographic Kernel Starting ===\n");
     print_debug("Kernel initialization begun");
 
-    // Add debug print here to check if initialization is called
-    print("[DEBUG] Initializing high-dimensional memory system...\n");
-
     // Initialize holographic memory system
+    print_debug("Initializing high-dimensional memory system...");
     initialize_holographic_memory();
     print_debug("Holographic memory initialized");
 
     // Initialize entities
-    print("[DEBUG] Initializing core entities...\n");
+    print_debug("Initializing core entities...");
     initialize_core_entities();
     print_debug("Core entities initialized");
 
     // Test holographic memory
-    print("[DEBUG] Verifying holographic memory...\n");
+    print_debug("Verifying holographic memory...");
     verify_holographic_memory();
     print_debug("Holographic memory verified");
 
-    print("Holographic Kernel Fully Initialized!\n");
-    print_debug("Kernel fully initialized");
-
+    // Hardware probing
+    print_debug("Probing hardware...");
     probe_hardware();
     print_debug("Hardware probing completed");
 
+    print("=== Kernel Fully Initialized ===\n");
     print("System entering holographic idle state...\n");
     print_debug("Entering idle state");
 
+    // Idle loop
     while (1) {
         __asm__ volatile("hlt");
     }
@@ -225,11 +271,10 @@ void encode_holographic_memory(HolographicVector* input, HolographicVector* outp
 }
 
 HolographicVector* retrieve_holographic_memory(uint32_t hash) {
-    // Fixed signed/unsigned comparison here
-    // Convert holo_system.memory_count to int for comparison
-    int memory_count = (int)holo_system.memory_count;
-    for (int i = 0; i < memory_count; i++) {
-        if (holo_system.memory_pool[i].valid && holo_system.memory_pool[i].input_pattern.hash_signature == hash) {
+    // Fixed signed/unsigned comparison
+    for (uint32_t i = 0; i < holo_system.memory_count; i++) {
+        if (holo_system.memory_pool[i].valid && 
+            holo_system.memory_pool[i].input_pattern.hash_signature == hash) {
             return &holo_system.memory_pool[i].output_pattern;
         }
     }
@@ -253,8 +298,8 @@ void initialize_core_entities() {
     print("Creating entities in holographic space...\n");
 
     // CPU Entity
-    char cpu_input[] = "CPU_ENTITY";
-    char cpu_knowledge[] = "PROCESSOR_CONTROL";
+    const char cpu_input[] = "CPU_ENTITY";
+    const char cpu_knowledge[] = "PROCESSOR_CONTROL";
     core_entities[0].type = ENTITY_CPU;
     core_entities[0].id = 0;
     core_entities[0].position = create_holographic_vector(cpu_input, strlen(cpu_input));
@@ -263,8 +308,8 @@ void initialize_core_entities() {
     print("CPU Entity positioned in holographic space\n");
 
     // Memory Entity
-    char mem_input[] = "MEMORY_ENTITY";
-    char mem_knowledge[] = "MEMORY_MANAGEMENT";
+    const char mem_input[] = "MEMORY_ENTITY";
+    const char mem_knowledge[] = "MEMORY_MANAGEMENT";
     core_entities[1].type = ENTITY_MEMORY;
     core_entities[1].id = 1;
     core_entities[1].position = create_holographic_vector(mem_input, strlen(mem_input));
@@ -273,8 +318,8 @@ void initialize_core_entities() {
     print("Memory Entity positioned in holographic space\n");
 
     // Device Entity
-    char dev_input[] = "DEVICE_ENTITY";
-    char dev_knowledge[] = "DEVICE_COORDINATION";
+    const char dev_input[] = "DEVICE_ENTITY";
+    const char dev_knowledge[] = "DEVICE_COORDINATION";
     core_entities[2].type = ENTITY_DEVICE;
     core_entities[2].id = 2;
     core_entities[2].position = create_holographic_vector(dev_input, strlen(dev_input));
@@ -283,8 +328,8 @@ void initialize_core_entities() {
     print("Device Entity positioned in holographic space\n");
 
     // FileSystem Entity
-    char fs_input[] = "FILESYSTEM_ENTITY";
-    char fs_knowledge[] = "FILE_MANAGEMENT";
+    const char fs_input[] = "FILESYSTEM_ENTITY";
+    const char fs_knowledge[] = "FILE_MANAGEMENT";
     core_entities[3].type = ENTITY_FILESYSTEM;
     core_entities[3].id = 3;
     core_entities[3].position = create_holographic_vector(fs_input, strlen(fs_input));
@@ -296,8 +341,8 @@ void initialize_core_entities() {
 void verify_holographic_memory() {
     print("Testing holographic associative memory...\n");
 
-    char test_input[] = "TEST_PATTERN";
-    char test_output[] = "EXPECTED_RESULT";
+    const char test_input[] = "TEST_PATTERN";
+    const char test_output[] = "EXPECTED_RESULT";
     HolographicVector input_vector = create_holographic_vector(test_input, strlen(test_input));
     HolographicVector output_vector = create_holographic_vector(test_output, strlen(test_output));
 
@@ -313,6 +358,7 @@ void verify_holographic_memory() {
         print("Holographic Memory Test 1: FAILED - Pattern not found\n");
     }
 
+    // Test entity knowledge retrieval
     HolographicVector* cpu_knowledge = retrieve_holographic_memory(core_entities[0].knowledge.hash_signature);
     if (cpu_knowledge) {
         print("Holographic Memory Test 2: SUCCESS - Entity knowledge accessible\n");
@@ -343,47 +389,4 @@ void set_memory_value(uint32_t address, uint8_t value) {
 uint8_t get_memory_value(uint32_t address) {
     uint8_t *ptr = (uint8_t *)address;
     return *ptr;
-}
-
-//---Video Functions---
-
-// Video state (to maintain cursor position)
-struct {
-    uint32_t video_memory;
-    int position;
-} video_state = {VIDEO_MEMORY, 0};
-
-void print_char(char c, uint8_t color) {
-    volatile char* video = (volatile char*)video_state.video_memory;
-
-    if (c == '\n') {
-        video_state.position = ((video_state.position / 80) + 1) * 80;
-    } else {
-        video[video_state.position * 2] = c;
-        video[video_state.position * 2 + 1] = color;
-        video_state.position++;
-    }
-
-    if (video_state.position >= 80 * 25) {
-        video_state.position = 0;
-    }
-}
-
-void print(const char* str) {
-    while (*str != 0) {
-        print_char(*str, 0x0f);
-        str++;
-    }
-}
-
-void print_hex(uint32_t value) {
-    char hex_digits[] = "0123456789ABCDEF";
-    char buffer[9];
-
-    for (int i = 7; i >= 0; i--) {
-        buffer[7-i] = hex_digits[(value >> (i*4)) & 0xF];
-    }
-    buffer[8] = '\0';
-    print("0x");
-    print(buffer);
 }
