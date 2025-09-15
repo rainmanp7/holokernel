@@ -57,7 +57,7 @@ $(DISK_IMAGE): $(BOOTLOADER) $(KERNEL_BIN)
 
 # Run the OS in QEMU
 run: $(DISK_IMAGE)
-	$(QEMU) -fda $< -format raw -serial stdio -nographic -machine pc -cpu pentium -m 64M -no-reboot -S -s
+	$(QEMU) -fda $< -format raw -nographic -machine pc -cpu pentium -m 64M -no-reboot -S -s  # Changed line
 
 # Clean build artifacts
 clean:
