@@ -10,7 +10,7 @@ on:
 jobs:
   build-and-boot:
     runs-on: ubuntu-latest
-    timeout-minutes: 15  # Increased timeout
+    timeout-minutes: 15
     env:
       QEMU_TIMEOUT: 120
 
@@ -27,7 +27,7 @@ jobs:
           path: |
             /var/cache/apt/archives
             /var/lib/apt/lists
-          key: ${{ runner.os }}-apt-${{ hashFiles('**/Makefile', '**/dependencies.txt', 'packages.txt') }}-v6 #Increment cache key
+          key: ${{ runner.os }}-apt-${{ hashFiles('**/Makefile', '**/dependencies.txt', 'packages.txt') }}-v6
           restore-keys: |
             ${{ runner.os }}-apt-
 
@@ -36,85 +36,60 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          echo "Checking cached dependencies..."
           if [ "${{ steps.apt-cache.outputs.cache-hit }}" != "true" ]; then
-            echo "Cache miss. Updating package list and installing dependencies..."
             sudo apt-get update -y
-            sudo apt-get -f install -y # Fix unmet dependencies
             sudo apt-get install -y build-essential nasm qemu-system-i386 gcc-multilib g++-multilib
-          else
-            echo "✅ APT dependencies found in cache."
           fi
 
       - name: Verify Tools Installation
         run: |
-          echo "Verifying tool availability:"
-          which gcc && gcc --version | head -1
-          which ld && ld --version | head -1
-          which objcopy && objcopy --version | head -1
+          which gcc && gcc --version
+          which ld && ld --version
+          which objcopy && objcopy --version
           which nasm && nasm -v
-          which qemu-system-i386 && qemu-system-i386 --version | head -1
+          which qemu-system-i386 && qemu-system-i386 --version
 
       - name: Build emergeos.img
         run: |
-          echo "Building emergeos.img with native tools..."
-          echo "Using compiler: $(which gcc)"
-
           if [ ! -f Makefile ]; then
-            echo "Error: Makefile not found."
-            ls -la
-            exit 1
+            echo "Error: Makefile not found." && ls -la && exit 1
           fi
 
-          make "clean" 2>&1 | tee clean.log || { echo "make clean failed, but continuing..."; cat clean.log; }
-          make "emergeos.img" || { echo "Error: Make failed"; exit 1; }
+          make clean || echo "make clean failed, continuing..."
+          make emergeos.img
 
           if [ ! -f emergeos.img ]; then
-            echo "Error: emergeos.img was not created."
-            echo "emergeos.img NOT found so exiting"
-            exit 1
+            echo "Error: emergeos.img was not created." && exit 1
+          fi
+
+          IMAGE_ACTUAL_PATH=$(realpath emergeos.img)
+          echo "Actual path of emergeos.img: $IMAGE_ACTUAL_PATH"
+
+          sleep 4
+
+          timeout "${QEMU_TIMEOUT}"s qemu-system-i386 \
+            -fda "$IMAGE_ACTUAL_PATH" \
+            -serial stdio \
+            -nographic \
+            -machine pc \
+            -cpu pentium \
+            -m 64M \
+            -no-reboot > serial.log 2>&1 || true
+
+          echo "--- Serial Output ---"
+          cat serial.log || true
+          echo "---------------------"
+
+          if grep -qi "Kernel Fully Initialized\|initialized successfully" serial.log; then
+            echo "✅ Boot successful! Kernel initialized."
           else
-            echo "emergeos.img found!"
-            # Find the absolute location of emergeos.img
-            IMAGE_ACTUAL_PATH=$(realpath emergeos.img)
-            echo "Actual path of emergeos.img: $IMAGE_ACTUAL_PATH"
-
-            # Get the full path to the image
-            IMAGE_PATH="${{ github.workspace }}/emergeos.img"
-
-            echo "Starting QEMU with image: $IMAGE_PATH"
-
-            # Add a delay to ensure the image is fully written
-            sleep 4
-
-            # FIXED: Use tee instead of output redirection to avoid stdio conflicts
-            timeout ${{ env.QEMU_TIMEOUT }}s qemu-system-i386 \
-              -fda "$IMAGE_ACTUAL_PATH" \
-              -format raw \
-              -serial stdio \
-              -nographic \
-              -machine pc \
-              -cpu pentium \
-              -m 64M \
-              -no-reboot | tee serial.log || true
-
-            echo "--- Serial Output ---"
-            cat serial.log
-            echo "---------------------"
-
-            if grep -qi "Kernel Fully Initialized\|initialized successfully" serial.log; then
-              echo "✅ Boot successful! Kernel initialized."
+            echo "❌ Kernel did not initialize properly."
+            if [ -s serial.log ]; then
+              head -20 serial.log
             else
-              echo "❌ Kernel did not initialize properly."
-              echo "Checking for any boot output..."
-              if [ -s serial.log ]; then
-                echo "Output contained: $(wc -l < serial.log) lines"
-                head -20 serial.log
-              else
-                echo "Serial log is empty - QEMU may have failed to start"
-              fi
-              exit 1
+              echo "Serial log is empty - QEMU may have failed to start"
             fi
+            exit 1
           fi
 
       - name: Upload Build Artifacts
