@@ -71,8 +71,8 @@ debug: $(DISK_IMAGE)
 	$(QEMU) -fda $< -format raw -serial stdio -nographic -machine pc -cpu pentium -m 64M -no-reboot -S -s
 
 # Clean build artifacts
-clean: > clean.log 2>&1 || true
-	rm -f *.bin *.o *.elf *.img
+clean:
+	rm -f *.bin *.o *.elf *.img > clean.log 2>&1 || true
 
 # Phony targets
 .PHONY: all run debug clean
