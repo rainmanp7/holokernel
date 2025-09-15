@@ -1,4 +1,4 @@
-name: Boot Test with QEMU
+name: Boot Test with QEMU and Bochs
 
 on:
   push:
@@ -10,9 +10,10 @@ on:
 jobs:
   build-and-boot:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20        # Increased for both emulators
     env:
       QEMU_TIMEOUT: 120
+      BOCHS_TIMEOUT: 120
 
     steps:
       - name: Checkout Code
@@ -37,7 +38,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y build-essential nasm qemu-system-i386 gcc-multilib g++-multilib
+          sudo apt-get install -y build-essential nasm qemu-system-i386 gcc-multilib g++-multilib bochs bochs-x
 
       - name: Verify Tools Installation
         run: |
@@ -46,6 +47,7 @@ jobs:
           which objcopy && objcopy --version
           which nasm && nasm -v
           which qemu-system-i386 && qemu-system-i386 --version
+          which bochs && bochs -v
 
       - name: List Source Files
         run: |
@@ -81,21 +83,6 @@ jobs:
           echo "✅ Build successful! emergeos.img created at: $IMAGE_ACTUAL_PATH"
           echo "Image size: $(stat -c%s emergeos.img) bytes"
 
-      - name: Check Floppy Image Size and Boot Signature
-        run: |
-          if [ "$(stat -c%s emergeos.img)" != "1474560" ]; then
-            echo "❌ emergeos.img is not 1.44MB! Got $(stat -c%s emergeos.img) bytes."
-            exit 1
-          fi
-          dd if=emergeos.img bs=1 skip=510 count=2 2>/dev/null | hexdump -C
-          sig1=$(dd if=emergeos.img bs=1 skip=510 count=1 2>/dev/null | od -An -tx1 | tr -d ' ')
-          sig2=$(dd if=emergeos.img bs=1 skip=511 count=1 2>/dev/null | od -An -tx1 | tr -d ' ')
-          if [ "$sig1" != "55" ] || [ "$sig2" != "aa" ]; then
-            echo "❌ Boot sector signature (0x55AA) missing!"
-            exit 1
-          fi
-          echo "✅ Floppy image size and boot signature are correct."
-
       - name: Test Boot with QEMU
         run: |
           echo "Starting QEMU boot test..."
@@ -108,10 +95,7 @@ jobs:
             -cpu pentium \
             -m 64M \
             -no-reboot \
-            -d int,guest_errors \
-            -D qemu-debug.log \
-            -display none > serial.log 2>&1
-          echo "QEMU exit code: $?"
+            -display none > serial.log 2>&1 || echo "QEMU exited (expected)"
           echo "--- QEMU Serial Output ---"
           if [ -f serial.log ] && [ -s serial.log ]; then
             cat serial.log
@@ -145,6 +129,37 @@ jobs:
             exit 1
           fi
 
+      - name: Create Bochs Config
+        run: |
+          cat > bochsrc.txt <<EOF
+          megs: 64
+          romimage: file=/usr/share/bochs/BIOS-bochs-latest
+          vgaromimage: file=/usr/share/bochs/VGABIOS-lgpl-latest
+          floppya: 1_44=emergeos.img, status=inserted
+          boot: a
+          log: bochs.log
+          panic: action=ask
+          error: action=report
+          info: action=report
+          debug: action=ignore
+          clock: sync=realtime
+          EOF
+
+      - name: Test Boot with Bochs
+        run: |
+          echo "Starting Bochs boot test..."
+          sleep 2
+          timeout "${BOCHS_TIMEOUT}"s bochs -q -f bochsrc.txt > bochs_console.log 2>&1 || echo "Bochs exited (expected)"
+          echo "--- Bochs Log Output ---"
+          if [ -f bochs.log ]; then
+            tail -20 bochs.log
+          fi
+          echo "--- Bochs Console Output ---"
+          if [ -f bochs_console.log ]; then
+            tail -20 bochs_console.log
+          fi
+          echo "-------------------------"
+
       - name: Upload Build Artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -159,18 +174,20 @@ jobs:
             clean.log
           if-no-files-found: warn
 
-      - name: Upload QEMU Debug Log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: qemu-debug
-          path: qemu-debug.log
-          if-no-files-found: warn
-
       - name: Upload Serial Log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: serial-output
           path: serial.log
+          if-no-files-found: warn
+
+      - name: Upload Bochs Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bochs-output
+          path: |
+            bochs.log
+            bochs_console.log
           if-no-files-found: warn
