@@ -1,4 +1,4 @@
-name: Boot Test with Bochs
+name: Boot Test with Custom Bochs
 
 on:
   push:
@@ -16,6 +16,8 @@ jobs:
       BOCHS_LOG: bochs.log
       BOCHS_CONSOLE_LOG: bochs_console.log
       BOCHS_TIMEOUT: 180
+      # Point to your custom-built Bochs binary
+      CUSTOM_BOCHS_BIN: ${{ github.workspace }}/bochs-build/bochs
 
     steps:
       - name: Checkout Code
@@ -37,7 +39,7 @@ jobs:
       - name: Save Installed Packages
         run: dpkg --get-selections "*" > packages.txt
 
-      - name: Install Dependencies
+      - name: Install Build Dependencies
         run: |
           sudo apt-get update -y
           sudo apt-get install -y \
@@ -45,11 +47,68 @@ jobs:
             nasm \
             gcc-multilib \
             g++-multilib \
-            bochs \
-            bochs-x \
             libncurses5-dev \
             libgtk2.0-dev \
-            libx11-dev
+            libx11-dev \
+            libsdl2-dev \
+            autoconf \
+            automake \
+            libtool \
+            bison \
+            flex \
+            xorg-dev
+
+      - name: Clone and Build Custom Bochs
+        run: |
+          echo "Cloning custom Bochs from https://github.com/rainmanp7/Bochs..."
+          git clone https://github.com/rainmanp7/Bochs.git bochs-source
+          cd bochs-source
+          
+          echo "Running autogen.sh..."
+          ./autogen.sh
+          
+          echo "Configuring Bochs build..."
+          ./configure \
+            --enable-smp \
+            --enable-cpu-level=6 \
+            --enable-x86-64 \
+            --enable-pci \
+            --enable-usb \
+            --enable-usb-ohci \
+            --enable-usb-xhci \
+            --enable-usb-hid \
+            --enable-usb-mouse \
+            --enable-usb-tablet \
+            --enable-ne2000 \
+            --enable-pcidev \
+            --enable-clgd54xx \
+            --enable-voodoo \
+            --enable-vmware-vga \
+            --enable-vgarom \
+            --enable-cdrom \
+            --enable-sb16 \
+            --enable-es1370 \
+            --enable-show-ips \
+            --enable-disasm \
+            --enable-iodebug \
+            --enable-logging \
+            --enable-debugger \
+            --enable-debugger-gui \
+            --enable-x86-debugger \
+            --enable-readline \
+            --enable-term \
+            --enable-sdl2 \
+            --with-x11 \
+            --prefix=${{ github.workspace }}/bochs-build
+
+          echo "Building Bochs..."
+          make -j$(nproc)
+          
+          echo "Installing Bochs locally..."
+          make install
+          
+          echo "Custom Bochs binary built at: ${{ env.CUSTOM_BOCHS_BIN }}"
+          ${{ env.CUSTOM_BOCHS_BIN }} --version
 
       - name: Verify Toolchain Versions
         run: |
@@ -60,8 +119,8 @@ jobs:
           ld --version
           echo "NASM:"
           nasm -v
-          echo "Bochs:"
-          bochs --help | grep -A 10 "Bochs x86 Emulator" || echo "Bochs version check failed"
+          echo "CUSTOM BOCHS:"
+          ${{ env.CUSTOM_BOCHS_BIN }} --version || echo "Failed to get version"
 
       - name: Validate Source Structure
         run: |
@@ -113,47 +172,82 @@ jobs:
           info: action=report
           debug: action=ignore
           clock: sync=realtime
-          display_library: none  # 👈 Fixed: Use 'none' for headless CI environments
+          display_library: none
           EOF
 
-      - name: Run Bochs Boot Test
-        continue-on-error: true
+      - name: 🔍 Validate Bochs Config & Files
         run: |
-          echo "Starting Bochs boot test..."
-          sleep 2
+          echo "=== VALIDATING BOCHS CONFIGURATION ==="
+          echo "--- bochsrc.txt ---"
+          cat bochsrc.txt
+          echo "-------------------"
           
-          # Create logs directory
-          mkdir -p logs
-          
-          # Run Bochs with full output capture
-          timeout $BOCHS_TIMEOUT bochs -q -f bochsrc.txt > $BOCHS_CONSOLE_LOG 2>&1 || echo "Bochs exited (expected)"
-          
-          # Check if log was created
-          if [ -f $BOCHS_LOG ]; then
-            echo "✅ Bochs log created: $BOCHS_LOG"
-            tail -20 $BOCHS_LOG
+          echo "Checking BIOS files..."
+          if [ ! -f /usr/share/bochs/BIOS-bochs-latest ]; then
+            echo "❌ BIOS file NOT found: /usr/share/bochs/BIOS-bochs-latest"
+            exit 1
           else
-            echo "❌ Bochs log NOT created!"
-            echo "Check bochsrc.txt and ensure paths are correct."
+            echo "✅ BIOS file found"
           fi
           
-          # Show console output
-          if [ -f $BOCHS_CONSOLE_LOG ]; then
-            echo "--- Bochs Console Output ---"
-            tail -20 $BOCHS_CONSOLE_LOG
+          if [ ! -f /usr/share/bochs/VGABIOS-lgpl-latest ]; then
+            echo "❌ VGABIOS file NOT found: /usr/share/bochs/VGABIOS-lgpl-latest"
+            exit 1
           else
-            echo "--- No console output captured ---"
+            echo "✅ VGABIOS file found"
+          fi
+          
+          echo "Checking boot image..."
+          if [ ! -f $IMAGE_NAME ]; then
+            echo "❌ Boot image NOT found: $IMAGE_NAME"
+            ls -la
+            exit 1
+          else
+            echo "✅ Boot image found: $IMAGE_NAME ($(stat -c%s $IMAGE_NAME) bytes)"
+          fi
+
+      - name: Run Bochs Boot Test (Custom Binary)
+        continue-on-error: true
+        run: |
+          echo "Starting CUSTOM Bochs boot test..."
+          sleep 2
+          
+          mkdir -p logs
+          
+          # Use your custom Bochs binary
+          echo "Running: timeout $BOCHS_TIMEOUT ${{ env.CUSTOM_BOCHS_BIN }} -q -f bochsrc.txt"
+          timeout $BOCHS_TIMEOUT ${{ env.CUSTOM_BOCHS_BIN }} -q -f bochsrc.txt > $BOCHS_CONSOLE_LOG 2>&1 || echo "Bochs exited (expected or due to error)"
+          
+          echo "=== BOCHS RUN COMPLETE ==="
+          
+          if [ -f $BOCHS_CONSOLE_LOG ]; then
+            echo "--- Bochs Console Output (stdout/stderr) ---"
+            cat $BOCHS_CONSOLE_LOG
+            echo "-------------------------------------------"
+          else
+            echo "⚠️  No console output captured"
+          fi
+          
+          if [ -f $BOCHS_LOG ] && [ -s $BOCHS_LOG ]; then
+            echo "✅ Bochs internal log created: $BOCHS_LOG"
+            tail -20 $BOCHS_LOG
+          else
+            echo "❌ Bochs internal log NOT created (likely config/startup error)"
+            if [ -f $BOCHS_CONSOLE_LOG ]; then
+              echo "💡 Check console output above for error messages"
+            fi
           fi
 
       - name: Analyze Bochs Results
         if: always()
         run: |
           if [ ! -f $BOCHS_LOG ] || [ ! -s $BOCHS_LOG ]; then
-            echo "❌ No Bochs log detected"
+            echo "❌ CRITICAL: No Bochs log detected. Bochs likely failed to start."
+            echo "💡 Check 'Run Bochs Boot Test' step output for startup errors."
             exit 1
           fi
           
-          echo "Checking for success patterns..."
+          echo "Checking for success patterns in $BOCHS_LOG..."
           if grep -qi "Kernel Fully Initialized\|=== Kernel Fully Initialized ===" $BOCHS_LOG; then
             echo "✅ SUCCESS: Kernel fully initialized!"
           elif grep -qi "Enhanced Holographic Kernel Starting\|Holographic Kernel Starting" $BOCHS_LOG; then
@@ -164,7 +258,7 @@ jobs:
             tail -20 $BOCHS_LOG
           else
             echo "❌ FAILURE: No initialization detected"
-            echo "Full output:"
+            echo "Full output from $BOCHS_LOG:"
             cat $BOCHS_LOG
             exit 1
           fi
