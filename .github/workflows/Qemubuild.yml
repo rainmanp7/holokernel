@@ -113,14 +113,14 @@ jobs:
           info: action=report
           debug: action=ignore
           clock: sync=realtime
-          display_library: x
+          display_library: none  # 👈 Fixed: Use 'none' for headless CI environments
           EOF
 
       - name: Run Bochs Boot Test
         continue-on-error: true
         run: |
           echo "Starting Bochs boot test..."
-          sleep 4
+          sleep 2
           
           # Create logs directory
           mkdir -p logs
