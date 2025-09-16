@@ -1,4 +1,4 @@
-name: Boot Test with Custom Bochs
+name: Boot Test with QEMU (Fixed)
 
 on:
   push:
@@ -10,13 +10,11 @@ on:
 jobs:
   build-and-boot:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     env:
+      QEMU_TIMEOUT: 120
       IMAGE_NAME: emergeos.img
-      BOCHS_LOG: bochs.log
-      BOCHS_CONSOLE_LOG: bochs_console.log
-      BOCHS_TIMEOUT: 180
-      CUSTOM_BOCHS_BIN: ${{ github.workspace }}/bochs-build/bochs
+      SERIAL_LOG: serial.log
 
     steps:
       - name: Checkout Code
@@ -31,254 +29,96 @@ jobs:
           path: |
             /var/cache/apt/archives
             /var/lib/apt/lists
-          key: ${{ runner.os }}-apt-${{ hashFiles('**/Makefile', '**/dependencies.txt', 'packages.txt') }}-v7
+          key: ${{ runner.os }}-apt-${{ hashFiles('**/Makefile', '**/dependencies.txt', 'packages.txt') }}-v6
           restore-keys: |
             ${{ runner.os }}-apt-
 
       - name: Save Installed Packages
         run: dpkg --get-selections "*" > packages.txt
 
-      - name: Install Build Dependencies
+      - name: Install Dependencies
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y \
-            build-essential \
-            nasm \
-            gcc-multilib \
-            g++-multilib \
-            libncurses5-dev \
-            libgtk2.0-dev \
-            libx11-dev \
-            libsdl2-dev \
-            autoconf \
-            automake \
-            libtool \
-            bison \
-            flex \
-            xorg-dev
+          echo "Checking cached dependencies..."
+          if [ "${{ steps.apt-cache.outputs.cache-hit }}" != "true" ]; then
+            echo "Cache miss. Updating package list and installing dependencies..."
+            sudo apt-get update -y
+            sudo apt-get -f install -y
+            sudo apt-get install -y build-essential nasm qemu-system-i386 gcc-multilib g++-multilib
+          else
+            echo "✅ APT dependencies found in cache."
+          fi
 
-      - name: Clone Your Bochs Fork
+      - name: Verify Tools Installation
         run: |
-          echo "Cloning your Bochs fork from https://github.com/rainmanp7/Bochs..."
-          git clone https://github.com/rainmanp7/Bochs.git bochs-source
-          cd bochs-source/bochs  # 👈 ENTER THE SOURCE DIRECTORY
-          
-          # Capture commit hash for cache key
-          BOCHS_COMMIT_HASH=$(git rev-parse HEAD)
-          echo "BOCHS_COMMIT_HASH=$BOCHS_COMMIT_HASH" >> $GITHUB_ENV
-          echo "✅ Bochs fork cloned at commit: $BOCHS_COMMIT_HASH"
-
-      - name: Cache Custom Bochs Build
-        id: bochs-cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/bochs-build
-          key: ${{ runner.os }}-bochs-${{ env.BOCHS_COMMIT_HASH }}
-          restore-keys: |
-            ${{ runner.os }}-bochs-
-
-      - name: Build Custom Bochs (if not cached)
-        if: steps.bochs-cache.outputs.cache-hit != 'true'
-        run: |
-          echo "Cache miss — building Bochs from source..."
-          cd bochs-source/bochs  # 👈 ENTER THE SOURCE DIRECTORY AGAIN
-          
-          echo "✅ Running autogen.sh..."
-          ./autogen.sh
-          
-          echo "✅ Configuring Bochs..."
-          ./configure \
-            --enable-smp \
-            --enable-cpu-level=6 \
-            --enable-x86-64 \
-            --enable-pci \
-            --enable-usb \
-            --enable-usb-ohci \
-            --enable-usb-xhci \
-            --enable-usb-hid \
-            --enable-usb-mouse \
-            --enable-usb-tablet \
-            --enable-ne2000 \
-            --enable-pcidev \
-            --enable-clgd54xx \
-            --enable-voodoo \
-            --enable-vmware-vga \
-            --enable-vgarom \
-            --enable-cdrom \
-            --enable-sb16 \
-            --enable-es1370 \
-            --enable-show-ips \
-            --enable-disasm \
-            --enable-iodebug \
-            --enable-logging \
-            --enable-debugger \
-            --enable-debugger-gui \
-            --enable-x86-debugger \
-            --enable-readline \
-            --enable-term \
-            --enable-sdl2 \
-            --with-x11 \
-            --prefix=${{ github.workspace }}/bochs-build
-
-          echo "✅ Building Bochs..."
-          make -j$(nproc)
-          
-          echo "✅ Installing Bochs locally..."
-          make install
-          
-          echo "✅ Custom Bochs binary built at: ${{ env.CUSTOM_BOCHS_BIN }}"
-          ${{ env.CUSTOM_BOCHS_BIN }} --version
-
-      - name: Verify Toolchain Versions
-        run: |
-          echo "=== TOOLCHAIN VERSIONS ==="
-          echo "GCC:"
-          gcc --version
-          echo "LD:"
-          ld --version
-          echo "NASM:"
-          nasm -v
-          echo "CUSTOM BOCHS:"
-          ${{ env.CUSTOM_BOCHS_BIN }} --version || echo "❌ Failed to get version"
-
-      - name: Validate Source Structure
-        run: |
-          required_files=("Makefile" "boot.asm" "kernel_entry.asm" "holographic_kernel.c" "linker.ld")
-          for file in "${required_files[@]}"; do
-            if [ ! -f "$file" ]; then
-              echo "❌ Missing required file: $file"
-              exit 1
-            else
-              echo "✅ $file exists"
-            fi
-          done
+          echo "Verifying tool availability:"
+          which gcc && gcc --version | head -1
+          which ld && ld --version | head -1
+          which objcopy && objcopy --version | head -1
+          which nasm && nasm -v
+          which qemu-system-i386 && qemu-system-i386 --version | head -1
 
       - name: Build Kernel Image
         run: |
-          echo "Starting build process..."
-          make clean || true
-          
+          echo "Building $IMAGE_NAME with native tools..."
           if [ ! -f Makefile ]; then
-            echo "❌ Makefile not found!"
+            echo "❌ Error: Makefile not found."
             ls -la
             exit 1
           fi
           
-          echo "Building $IMAGE_NAME..."
-          make $IMAGE_NAME 2>&1 | tee build_output.log
+          make clean 2>/dev/null || echo "No clean target, continuing..."
+          make $IMAGE_NAME || { echo "❌ Error: Make failed"; exit 1; }
           
           if [ ! -f $IMAGE_NAME ]; then
-            echo "❌ Build failed - $IMAGE_NAME not created"
-            echo "Build output:"
-            cat build_output.log
+            echo "❌ Error: $IMAGE_NAME was not created."
             exit 1
           fi
           
-          echo "✅ Build successful! $IMAGE_NAME created ($(stat -c%s $IMAGE_NAME) bytes)"
-          ls -la *.bin *.o *.elf 2>/dev/null || echo "No additional artifacts found"
+          echo "✅ $IMAGE_NAME built successfully! Size: $(stat -c%s $IMAGE_NAME) bytes"
 
-      - name: Generate Bochs Configuration
+      - name: Run QEMU Boot Test
         run: |
-          cat > bochsrc.txt <<EOF
-          megs: 128
-          romimage: file=/usr/share/bochs/BIOS-bochs-latest
-          vgaromimage: file=/usr/share/bochs/VGABIOS-lgpl-latest
-          floppya: 1_44=$IMAGE_NAME, status=inserted
-          boot: a
-          log: $BOCHS_LOG
-          panic: action=ask
-          error: action=report
-          info: action=report
-          debug: action=ignore
-          clock: sync=realtime
-          display_library: none
-          EOF
+          echo "Starting QEMU with image: $IMAGE_NAME"
+          
+          # ✅ FIXED: Use correct -fda syntax
+          timeout $QEMU_TIMEOUT qemu-system-i386 \
+            -fda $IMAGE_NAME \
+            -serial stdio \
+            -nographic \
+            -machine pc \
+            -cpu pentium \
+            -m 64M \
+            -no-reboot \
+            > $SERIAL_LOG 2>&1 || echo "QEMU exited (expected)"
+          
+          echo "--- QEMU Serial Output ---"
+          if [ -f $SERIAL_LOG ]; then
+            cat $SERIAL_LOG
+          else
+            echo "❌ No serial log created!"
+            exit 1
+          fi
+          echo "---------------------------"
 
-      - name: 🔍 Validate Bochs Config & Files
+      - name: Analyze Boot Results
         run: |
-          echo "=== VALIDATING BOCHS CONFIGURATION ==="
-          echo "--- bochsrc.txt ---"
-          cat bochsrc.txt
-          echo "-------------------"
-          
-          echo "Checking BIOS files..."
-          if [ ! -f /usr/share/bochs/BIOS-bochs-latest ]; then
-            echo "❌ BIOS file NOT found: /usr/share/bochs/BIOS-bochs-latest"
-            exit 1
-          else
-            echo "✅ BIOS file found"
-          fi
-          
-          if [ ! -f /usr/share/bochs/VGABIOS-lgpl-latest ]; then
-            echo "❌ VGABIOS file NOT found: /usr/share/bochs/VGABIOS-lgpl-latest"
-            exit 1
-          else
-            echo "✅ VGABIOS file found"
-          fi
-          
-          echo "Checking boot image..."
-          if [ ! -f $IMAGE_NAME ]; then
-            echo "❌ Boot image NOT found: $IMAGE_NAME"
-            ls -la
-            exit 1
-          else
-            echo "✅ Boot image found: $IMAGE_NAME ($(stat -c%s $IMAGE_NAME) bytes)"
-          fi
-
-      - name: Run Bochs Boot Test (Custom Binary)
-        continue-on-error: true
-        run: |
-          echo "Starting CUSTOM Bochs boot test..."
-          sleep 2
-          
-          mkdir -p logs
-          
-          # Use your custom Bochs binary
-          echo "Running: timeout $BOCHS_TIMEOUT ${{ env.CUSTOM_BOCHS_BIN }} -q -f bochsrc.txt"
-          timeout $BOCHS_TIMEOUT ${{ env.CUSTOM_BOCHS_BIN }} -q -f bochsrc.txt > $BOCHS_CONSOLE_LOG 2>&1 || echo "Bochs exited (expected or due to error)"
-          
-          echo "=== BOCHS RUN COMPLETE ==="
-          
-          if [ -f $BOCHS_CONSOLE_LOG ]; then
-            echo "--- Bochs Console Output (stdout/stderr) ---"
-            cat $BOCHS_CONSOLE_LOG
-            echo "-------------------------------------------"
-          else
-            echo "⚠️  No console output captured"
-          fi
-          
-          if [ -f $BOCHS_LOG ] && [ -s $BOCHS_LOG ]; then
-            echo "✅ Bochs internal log created: $BOCHS_LOG"
-            tail -20 $BOCHS_LOG
-          else
-            echo "❌ Bochs internal log NOT created (likely config/startup error)"
-            if [ -f $BOCHS_CONSOLE_LOG ]; then
-              echo "💡 Check console output above for error messages"
-            fi
-          fi
-
-      - name: Analyze Bochs Results
-        if: always()
-        run: |
-          if [ ! -f $BOCHS_LOG ] || [ ! -s $BOCHS_LOG ]; then
-            echo "❌ CRITICAL: No Bochs log detected. Bochs likely failed to start."
-            echo "💡 Check 'Run Bochs Boot Test' step output for startup errors."
+          if [ ! -f $SERIAL_LOG ] || [ ! -s $SERIAL_LOG ]; then
+            echo "❌ No serial output detected. QEMU may have failed to start."
             exit 1
           fi
           
-          echo "Checking for success patterns in $BOCHS_LOG..."
-          if grep -qi "Kernel Fully Initialized\|=== Kernel Fully Initialized ===" $BOCHS_LOG; then
-            echo "✅ SUCCESS: Kernel fully initialized!"
-          elif grep -qi "Enhanced Holographic Kernel Starting\|Holographic Kernel Starting" $BOCHS_LOG; then
+          if grep -qi "Kernel initialized successfully\|Kernel Fully Initialized\|=== Kernel Fully Initialized ===" $SERIAL_LOG; then
+            echo "✅ SUCCESS: Kernel initialized successfully!"
+          elif grep -qi "Enhanced Holographic Kernel Starting\|Holographic Kernel Starting" $SERIAL_LOG; then
             echo "⚠️  PARTIAL: Kernel started but may not have completed initialization"
-            tail -20 $BOCHS_LOG
-          elif grep -qi "Protected Mode Test: PASSED" $BOCHS_LOG; then
+            tail -20 $SERIAL_LOG
+          elif grep -qi "Protected Mode Test: PASSED" $SERIAL_LOG; then
             echo "⚠️  PARTIAL: Protected mode OK but kernel initialization incomplete"
-            tail -20 $BOCHS_LOG
+            tail -20 $SERIAL_LOG
           else
-            echo "❌ FAILURE: No initialization detected"
-            echo "Full output from $BOCHS_LOG:"
-            cat $BOCHS_LOG
+            echo "❌ FAILURE: No recognizable boot messages detected."
+            echo "Full output:"
+            cat $SERIAL_LOG
             exit 1
           fi
 
@@ -286,25 +126,15 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-artifacts
+          name: build-and-boot-artifacts
           path: |
             $IMAGE_NAME
-            $BOCHS_LOG
-            $BOCHS_CONSOLE_LOG
-            bochsrc.txt
+            $SERIAL_LOG
+            *.bin
+            *.elf
             Makefile
             boot.asm
             kernel_entry.asm
             holographic_kernel.c
             linker.ld
-            *.o
-            *.elf
-            *.bin
-            build_output.log
-            logs/
-          retention-days: 30
-
-      - name: Post Cache Cleanup
-        run: |
-          sudo apt-get clean
-          rm -rf /var/lib/apt/lists/*
+          if-no-files-found: warn
