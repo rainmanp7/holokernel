@@ -80,16 +80,16 @@ jobs:
         run: |
           echo "Starting QEMU with image: $IMAGE_NAME"
           
-          # ✅ FIXED: Use correct -fda syntax
+          # ✅ FIXED: Use correct -fda syntax AND -serial file
           timeout $QEMU_TIMEOUT qemu-system-i386 \
             -fda $IMAGE_NAME \
-            -serial stdio \
+            -serial file=$SERIAL_LOG \
             -nographic \
             -machine pc \
             -cpu pentium \
             -m 64M \
             -no-reboot \
-            > $SERIAL_LOG 2>&1 || echo "QEMU exited (expected)"
+            > /dev/null 2>&1 || echo "QEMU exited (expected)"
           
           echo "--- QEMU Serial Output ---"
           if [ -f $SERIAL_LOG ]; then
