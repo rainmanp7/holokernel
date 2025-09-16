@@ -18,6 +18,7 @@ typedef unsigned int    uint32_t;
 
 // Video Memory
 #define VIDEO_MEMORY 0xb8000
+
 // Serial Port (COM1)
 #define SERIAL_PORT 0x3F8
 #define SERIAL_STATUS 0x3FD
@@ -94,7 +95,7 @@ uint32_t check_protected_mode() {
 void print_char(char c, uint8_t color);
 void print(const char* str);
 void print_hex(uint32_t value);
-void print_debug(const char* message);
+void serial_print(const char* str);
 void kmain();
 uint32_t hash_data(const void* input, uint32_t size);
 HolographicVector create_holographic_vector(const void* input, uint32_t size);
@@ -104,8 +105,6 @@ void initialize_holographic_memory();
 void initialize_core_entities();
 void verify_holographic_memory();
 void probe_hardware();
-void set_memory_value(uint32_t address, uint8_t value);
-uint8_t get_memory_value(uint32_t address);
 
 //---Serial Functions---
 static inline uint8_t inb(uint16_t port) {
@@ -174,27 +173,6 @@ void print_hex(uint32_t value) {
     print(buffer);
 }
 
-//---Debug function---
-void print_debug(const char* message) {
-    print("[DEBUG] ");
-    print(message);
-    print("
-");
-    serial_print("[DEBUG] ");
-    serial_print(message);
-    serial_print("
-");
-}
-
-// Helper function to get the length of a string
-uint32_t strlen(const char* str) {
-    uint32_t len = 0;
-    while (str[len] != 0) {
-        len++;
-    }
-    return len;
-}
-
 //---Kernel starting point---
 void kmain() {
     // Clear screen first
@@ -212,16 +190,10 @@ void kmain() {
     // Check protected mode with the correct test signature
     uint32_t test_value = *(uint32_t*)TEST_MEMORY_LOCATION;
     if (test_value == 0x12345678) {
-        print_debug("Protected Mode Test: PASSED");
         serial_print("Protected Mode Test: PASSED
 ");
     } else {
-        print_debug("Protected Mode Test: FAILED");
         serial_print("Protected Mode Test: FAILED
-");
-        print("Expected: 0x12345678, Got: ");
-        print_hex(test_value);
-        print("
 ");
         serial_print("Expected: 0x12345678, Got: ");
         serial_print_hex(test_value);
@@ -231,71 +203,41 @@ void kmain() {
 
     // Check if we're in protected mode
     if (!check_protected_mode()) {
-        print("ERROR: Not in protected mode!
-");
         serial_print("ERROR: Not in protected mode!
 ");
         while (1) {
             __asm__ volatile("hlt");
         }
     }
-    print_debug("Protected mode check passed");
-    serial_print("Protected mode check passed
-");
 
-    print("=== Enhanced Holographic Kernel Starting ===
+    serial_print("Protected mode check passed
 ");
     serial_print("=== Enhanced Holographic Kernel Starting ===
 ");
 
     // Initialize holographic memory system
-    print_debug("Initializing high-dimensional memory system...");
-    serial_print("Initializing high-dimensional memory system...
-");
     initialize_holographic_memory();
-    print_debug("Holographic memory initialized");
     serial_print("Holographic memory initialized
 ");
 
     // Initialize entities
-    print_debug("Initializing core entities...");
-    serial_print("Initializing core entities...
-");
     initialize_core_entities();
-    print_debug("Core entities initialized");
     serial_print("Core entities initialized
 ");
 
     // Test holographic memory
-    print_debug("Verifying holographic memory...");
-    serial_print("Verifying holographic memory...
-");
     verify_holographic_memory();
-    print_debug("Holographic memory verified");
     serial_print("Holographic memory verified
 ");
 
     // Hardware probing
-    print_debug("Probing hardware...");
-    serial_print("Probing hardware...
-");
     probe_hardware();
-    print_debug("Hardware probing completed");
     serial_print("Hardware probing completed
 ");
 
-    print("=== Kernel Fully Initialized ===
-");
     serial_print("=== Kernel Fully Initialized ===
 ");
-
-    print("System entering holographic idle state...
-");
     serial_print("System entering holographic idle state...
-");
-
-    print_debug("Entering idle state");
-    serial_print("Entering idle state
 ");
 
     // Idle loop
@@ -336,8 +278,6 @@ HolographicVector create_holographic_vector(const void* input, uint32_t size) {
 
 void encode_holographic_memory(HolographicVector* input, HolographicVector* output) {
     if (holo_system.memory_count >= MAX_MEMORY_ENTRIES) {
-        print("Warning: Holographic memory full, overwriting oldest entry
-");
         serial_print("Warning: Holographic memory full, overwriting oldest entry
 ");
         holo_system.memory_count = 0;
@@ -351,7 +291,6 @@ void encode_holographic_memory(HolographicVector* input, HolographicVector* outp
 }
 
 HolographicVector* retrieve_holographic_memory(uint32_t hash) {
-    // Fixed signed/unsigned comparison
     for (uint32_t i = 0; i < holo_system.memory_count; i++) {
         if (holo_system.memory_pool[i].valid && 
             holo_system.memory_pool[i].input_pattern.hash_signature == hash) {
@@ -362,8 +301,6 @@ HolographicVector* retrieve_holographic_memory(uint32_t hash) {
 }
 
 void initialize_holographic_memory() {
-    print("Setting up holographic memory pool...
-");
     serial_print("Setting up holographic memory pool...
 ");
     holo_system.memory_count = 0;
@@ -371,10 +308,6 @@ void initialize_holographic_memory() {
     for (int i = 0; i < MAX_MEMORY_ENTRIES; i++) {
         holo_system.memory_pool[i].valid = 0;
     }
-    print("Holographic memory system online - ");
-    print_hex(HOLOGRAPHIC_DIMENSIONS);
-    print(" dimensions available
-");
     serial_print("Holographic memory system online - ");
     serial_print_hex(HOLOGRAPHIC_DIMENSIONS);
     serial_print(" dimensions available
@@ -383,8 +316,6 @@ void initialize_holographic_memory() {
 
 //---Entity Functions---
 void initialize_core_entities() {
-    print("Creating entities in holographic space...
-");
     serial_print("Creating entities in holographic space...
 ");
     // CPU Entity
@@ -395,8 +326,6 @@ void initialize_core_entities() {
     core_entities[0].position = create_holographic_vector(cpu_input, strlen(cpu_input));
     core_entities[0].knowledge = create_holographic_vector(cpu_knowledge, strlen(cpu_knowledge));
     core_entities[0].tasks_processed = 0;
-    print("CPU Entity positioned in holographic space
-");
     serial_print("CPU Entity positioned in holographic space
 ");
 
@@ -408,8 +337,6 @@ void initialize_core_entities() {
     core_entities[1].position = create_holographic_vector(mem_input, strlen(mem_input));
     core_entities[1].knowledge = create_holographic_vector(mem_knowledge, strlen(mem_knowledge));
     core_entities[1].tasks_processed = 0;
-    print("Memory Entity positioned in holographic space
-");
     serial_print("Memory Entity positioned in holographic space
 ");
 
@@ -421,8 +348,6 @@ void initialize_core_entities() {
     core_entities[2].position = create_holographic_vector(dev_input, strlen(dev_input));
     core_entities[2].knowledge = create_holographic_vector(dev_knowledge, strlen(dev_knowledge));
     core_entities[2].tasks_processed = 0;
-    print("Device Entity positioned in holographic space
-");
     serial_print("Device Entity positioned in holographic space
 ");
 
@@ -434,15 +359,11 @@ void initialize_core_entities() {
     core_entities[3].position = create_holographic_vector(fs_input, strlen(fs_input));
     core_entities[3].knowledge = create_holographic_vector(fs_knowledge, strlen(fs_knowledge));
     core_entities[3].tasks_processed = 0;
-    print("FileSystem Entity positioned in holographic space
-");
     serial_print("FileSystem Entity positioned in holographic space
 ");
 }
 
 void verify_holographic_memory() {
-    print("Testing holographic associative memory...
-");
     serial_print("Testing holographic associative memory...
 ");
     const char test_input[] = "TEST_PATTERN";
@@ -452,68 +373,46 @@ void verify_holographic_memory() {
     encode_holographic_memory(&input_vector, &output_vector);
     HolographicVector* retrieved = retrieve_holographic_memory(input_vector.hash_signature);
     if (retrieved) {
-        print("Holographic Memory Test 1: SUCCESS - Pattern retrieved
-");
         serial_print("Holographic Memory Test 1: SUCCESS - Pattern retrieved
-");
-        print("  Active dimensions: ");
-        print_hex(retrieved->active_dimensions);
-        print("
 ");
         serial_print("  Active dimensions: ");
         serial_print_hex(retrieved->active_dimensions);
         serial_print("
 ");
     } else {
-        print("Holographic Memory Test 1: FAILED - Pattern not found
-");
         serial_print("Holographic Memory Test 1: FAILED - Pattern not found
 ");
     }
     // Test entity knowledge retrieval
     HolographicVector* cpu_knowledge = retrieve_holographic_memory(core_entities[0].knowledge.hash_signature);
     if (cpu_knowledge) {
-        print("Holographic Memory Test 2: SUCCESS - Entity knowledge accessible
-");
         serial_print("Holographic Memory Test 2: SUCCESS - Entity knowledge accessible
 ");
     } else {
-        print("Holographic Memory Test 2: FAILED - Entity knowledge not found
-");
         serial_print("Holographic Memory Test 2: FAILED - Entity knowledge not found
 ");
     }
 }
 
 void probe_hardware() {
-    print("Initiating holographic hardware probe...
-");
     serial_print("Initiating holographic hardware probe...
-");
-    print("Entities collaborating for system discovery...
 ");
     serial_print("Entities collaborating for system discovery...
 ");
     for (int i = 0; i < ENTITY_COUNT; i++) {
         core_entities[i].tasks_processed++;
     }
-    print("Hardware mapping complete - ");
-    print_hex(ENTITY_COUNT);
-    print(" entities active
-");
     serial_print("Hardware mapping complete - ");
     serial_print_hex(ENTITY_COUNT);
     serial_print(" entities active
 ");
 }
 
-//---Memory Management Functions---
-void set_memory_value(uint32_t address, uint8_t value) {
-    uint8_t *ptr = (uint8_t *)address;
-    *ptr = value;
-}
-
-uint8_t get_memory_value(uint32_t address) {
-    uint8_t *ptr = (uint8_t *)address;
-    return *ptr;
+// Helper function to get the length of a string
+uint32_t strlen(const char* str) {
+    uint32_t len = 0;
+    while (str[len] != 0) {
+        len++;
+    }
+    return len;
 }
