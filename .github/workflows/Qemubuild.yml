@@ -16,7 +16,6 @@ jobs:
       BOCHS_LOG: bochs.log
       BOCHS_CONSOLE_LOG: bochs_console.log
       BOCHS_TIMEOUT: 180
-      # Point to your custom-built Bochs binary
       CUSTOM_BOCHS_BIN: ${{ github.workspace }}/bochs-build/bochs
 
     steps:
@@ -58,16 +57,36 @@ jobs:
             flex \
             xorg-dev
 
-      - name: Clone and Build Custom Bochs
+      - name: Clone Your Bochs Fork
         run: |
-          echo "Cloning custom Bochs from https://github.com/rainmanp7/Bochs..."
+          echo "Cloning your Bochs fork from https://github.com/rainmanp7/Bochs..."
           git clone https://github.com/rainmanp7/Bochs.git bochs-source
-          cd bochs-source
+          cd bochs-source/bochs  # 👈 ENTER THE SOURCE DIRECTORY
           
-          echo "Running autogen.sh..."
+          # Capture commit hash for cache key
+          BOCHS_COMMIT_HASH=$(git rev-parse HEAD)
+          echo "BOCHS_COMMIT_HASH=$BOCHS_COMMIT_HASH" >> $GITHUB_ENV
+          echo "✅ Bochs fork cloned at commit: $BOCHS_COMMIT_HASH"
+
+      - name: Cache Custom Bochs Build
+        id: bochs-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/bochs-build
+          key: ${{ runner.os }}-bochs-${{ env.BOCHS_COMMIT_HASH }}
+          restore-keys: |
+            ${{ runner.os }}-bochs-
+
+      - name: Build Custom Bochs (if not cached)
+        if: steps.bochs-cache.outputs.cache-hit != 'true'
+        run: |
+          echo "Cache miss — building Bochs from source..."
+          cd bochs-source/bochs  # 👈 ENTER THE SOURCE DIRECTORY AGAIN
+          
+          echo "✅ Running autogen.sh..."
           ./autogen.sh
           
-          echo "Configuring Bochs build..."
+          echo "✅ Configuring Bochs..."
           ./configure \
             --enable-smp \
             --enable-cpu-level=6 \
@@ -101,13 +120,13 @@ jobs:
             --with-x11 \
             --prefix=${{ github.workspace }}/bochs-build
 
-          echo "Building Bochs..."
+          echo "✅ Building Bochs..."
           make -j$(nproc)
           
-          echo "Installing Bochs locally..."
+          echo "✅ Installing Bochs locally..."
           make install
           
-          echo "Custom Bochs binary built at: ${{ env.CUSTOM_BOCHS_BIN }}"
+          echo "✅ Custom Bochs binary built at: ${{ env.CUSTOM_BOCHS_BIN }}"
           ${{ env.CUSTOM_BOCHS_BIN }} --version
 
       - name: Verify Toolchain Versions
@@ -120,7 +139,7 @@ jobs:
           echo "NASM:"
           nasm -v
           echo "CUSTOM BOCHS:"
-          ${{ env.CUSTOM_BOCHS_BIN }} --version || echo "Failed to get version"
+          ${{ env.CUSTOM_BOCHS_BIN }} --version || echo "❌ Failed to get version"
 
       - name: Validate Source Structure
         run: |
