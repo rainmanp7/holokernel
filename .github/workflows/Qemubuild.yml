@@ -1,4 +1,4 @@
-name: Boot Test with QEMU (Fixed)
+name: Debug Boot Test with QEMU (Maximum Verbosity)
 
 on:
   push:
@@ -8,13 +8,15 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-boot:
+  build-and-boot-debug:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
-      QEMU_TIMEOUT: 120
+      QEMU_TIMEOUT: 180
       IMAGE_NAME: emergeos.img
       SERIAL_LOG: serial.log
+      QEMU_LOG: qemu_debug.log
+      MONITOR_LOG: qemu_monitor.log
 
     steps:
       - name: Checkout Code
@@ -29,107 +31,287 @@ jobs:
           path: |
             /var/cache/apt/archives
             /var/lib/apt/lists
-          key: ${{ runner.os }}-apt-${{ hashFiles('**/Makefile', '**/dependencies.txt', 'packages.txt') }}-v6
+          key: ${{ runner.os }}-apt-${{ hashFiles('**/Makefile', '**/dependencies.txt', 'packages.txt') }}-v7
           restore-keys: |
             ${{ runner.os }}-apt-
 
       - name: Save Installed Packages
         run: dpkg --get-selections "*" > packages.txt
 
-      - name: Install Dependencies
+      - name: Install Dependencies with Debug Tools
         run: |
           echo "Checking cached dependencies..."
           if [ "${{ steps.apt-cache.outputs.cache-hit }}" != "true" ]; then
             echo "Cache miss. Updating package list and installing dependencies..."
             sudo apt-get update -y
             sudo apt-get -f install -y
-            sudo apt-get install -y build-essential nasm qemu-system-i386 gcc-multilib g++-multilib
+            sudo apt-get install -y build-essential nasm qemu-system-i386 gcc-multilib g++-multilib \
+              hexdump file strace gdb qemu-utils
           else
             echo "✅ APT dependencies found in cache."
+            # Install debug tools even if cache hit
+            sudo apt-get install -y hexdump file strace gdb qemu-utils 2>/dev/null || true
           fi
 
-      - name: Verify Tools Installation
+      - name: System Information
         run: |
-          echo "Verifying tool availability:"
+          echo "=== SYSTEM INFORMATION ==="
+          uname -a
+          lscpu | head -10
+          free -h
+          df -h
+          echo "=========================="
+
+      - name: Verify Tools Installation (Extended)
+        run: |
+          echo "=== TOOL VERIFICATION ==="
           which gcc && gcc --version | head -1
           which ld && ld --version | head -1
           which objcopy && objcopy --version | head -1
           which nasm && nasm -v
           which qemu-system-i386 && qemu-system-i386 --version | head -1
+          which hexdump && hexdump --version 2>/dev/null || echo "hexdump available (no version flag)"
+          which file && file --version | head -1
+          which qemu-img && qemu-img --version | head -1
+          echo "========================="
 
-      - name: Build Kernel Image
+      - name: Build Kernel Image (Debug Mode)
         run: |
-          echo "Building $IMAGE_NAME with native tools..."
+          echo "=== BUILDING $IMAGE_NAME ==="
           if [ ! -f Makefile ]; then
             echo "❌ Error: Makefile not found."
+            echo "Directory contents:"
             ls -la
             exit 1
           fi
           
+          echo "Makefile contents:"
+          cat Makefile
+          echo "===================="
+          
           make clean 2>/dev/null || echo "No clean target, continuing..."
-          make $IMAGE_NAME || { echo "❌ Error: Make failed"; exit 1; }
+          
+          echo "Building with verbose output..."
+          make $IMAGE_NAME V=1 || make $IMAGE_NAME || { 
+            echo "❌ Error: Make failed"
+            echo "Build directory contents after failure:"
+            ls -la
+            exit 1
+          }
           
           if [ ! -f $IMAGE_NAME ]; then
             echo "❌ Error: $IMAGE_NAME was not created."
+            echo "Build directory contents:"
+            ls -la
             exit 1
           fi
           
-          echo "✅ $IMAGE_NAME built successfully! Size: $(stat -c%s $IMAGE_NAME) bytes"
+          echo "✅ $IMAGE_NAME built successfully!"
+          echo "File details:"
+          ls -la $IMAGE_NAME
+          file $IMAGE_NAME
+          echo "File size: $(stat -c%s $IMAGE_NAME) bytes"
+          echo "========================="
 
-      - name: Run QEMU Boot Test
+      - name: Analyze Boot Image
         run: |
-          echo "Starting QEMU with image: $IMAGE_NAME"
+          echo "=== BOOT IMAGE ANALYSIS ==="
+          echo "Image file type:"
+          file $IMAGE_NAME
           
-          # ✅ FIXED: Use correct -fda syntax AND -serial file
+          echo "First 512 bytes (boot sector) in hex:"
+          hexdump -C $IMAGE_NAME | head -32
+          
+          echo "Boot signature check (last 2 bytes of first sector should be 55 AA):"
+          dd if=$IMAGE_NAME bs=1 skip=510 count=2 2>/dev/null | hexdump -C
+          
+          echo "Image size and structure:"
+          ls -la $IMAGE_NAME
+          wc -c $IMAGE_NAME
+          echo "========================="
+
+      - name: QEMU Capabilities Test
+        run: |
+          echo "=== QEMU CAPABILITIES ==="
+          echo "Available QEMU machines:"
+          qemu-system-i386 -machine help | head -10
+          
+          echo "Available CPUs:"
+          qemu-system-i386 -cpu help | head -10
+          
+          echo "QEMU version details:"
+          qemu-system-i386 -version
+          echo "========================="
+
+      - name: Run QEMU Boot Test (Maximum Debug)
+        run: |
+          echo "=== STARTING QEMU DEBUG SESSION ==="
+          echo "Starting QEMU with image: $IMAGE_NAME"
+          echo "Timeout: $QEMU_TIMEOUT seconds"
+          
+          # Create QEMU monitor commands file
+          cat > monitor_commands.txt << 'EOF'
+          info registers
+          info cpus
+          info memory
+          info block
+          info status
+          EOF
+          
+          echo "QEMU command that will be executed:"
+          echo "timeout $QEMU_TIMEOUT qemu-system-i386 \\"
+          echo "  -fda $IMAGE_NAME \\"
+          echo "  -serial file:$SERIAL_LOG \\"
+          echo "  -monitor file:$MONITOR_LOG \\"
+          echo "  -d int,cpu,guest_errors,unimp,trace:* \\"
+          echo "  -D $QEMU_LOG \\"
+          echo "  -nographic \\"
+          echo "  -machine pc \\"
+          echo "  -cpu pentium \\"
+          echo "  -m 64M \\"
+          echo "  -no-reboot \\"
+          echo "  -boot a"
+          echo ""
+          
+          # Run QEMU with maximum debugging
           timeout $QEMU_TIMEOUT qemu-system-i386 \
             -fda $IMAGE_NAME \
-            -serial file=$SERIAL_LOG \
+            -serial file:$SERIAL_LOG \
+            -monitor file:$MONITOR_LOG \
+            -d int,cpu,guest_errors,unimp \
+            -D $QEMU_LOG \
             -nographic \
             -machine pc \
             -cpu pentium \
             -m 64M \
             -no-reboot \
-            > /dev/null 2>&1 || echo "QEMU exited (expected)"
+            -boot a \
+            2>&1 | tee qemu_stderr.log || echo "QEMU exited (exit code: $?)"
           
-          echo "--- QEMU Serial Output ---"
-          if [ -f $SERIAL_LOG ]; then
-            cat $SERIAL_LOG
-          else
-            echo "❌ No serial log created!"
-            exit 1
-          fi
-          echo "---------------------------"
+          echo "QEMU execution completed."
+          echo "========================="
 
-      - name: Analyze Boot Results
+      - name: Comprehensive Output Analysis
         run: |
+          echo "=== COMPREHENSIVE DEBUG ANALYSIS ==="
+          
+          echo "1. QEMU STDERR OUTPUT:"
+          if [ -f qemu_stderr.log ] && [ -s qemu_stderr.log ]; then
+            echo "--- QEMU stderr ---"
+            cat qemu_stderr.log
+            echo "--- End QEMU stderr ---"
+          else
+            echo "No QEMU stderr output or file empty"
+          fi
+          echo ""
+          
+          echo "2. QEMU DEBUG LOG:"
+          if [ -f $QEMU_LOG ] && [ -s $QEMU_LOG ]; then
+            echo "--- QEMU Debug Log (first 100 lines) ---"
+            head -100 $QEMU_LOG
+            echo "--- QEMU Debug Log (last 50 lines) ---"
+            tail -50 $QEMU_LOG
+            echo "Total lines in debug log: $(wc -l < $QEMU_LOG)"
+          else
+            echo "❌ No QEMU debug log created or file empty!"
+          fi
+          echo ""
+          
+          echo "3. SERIAL OUTPUT:"
+          if [ -f $SERIAL_LOG ] && [ -s $SERIAL_LOG ]; then
+            echo "--- Serial Output ---"
+            cat $SERIAL_LOG
+            echo "--- End Serial Output ---"
+            echo "Serial log size: $(wc -c < $SERIAL_LOG) bytes"
+          else
+            echo "❌ No serial output detected!"
+          fi
+          echo ""
+          
+          echo "4. MONITOR OUTPUT:"
+          if [ -f $MONITOR_LOG ] && [ -s $MONITOR_LOG ]; then
+            echo "--- Monitor Output ---"
+            cat $MONITOR_LOG
+            echo "--- End Monitor Output ---"
+          else
+            echo "No monitor output (this is normal)"
+          fi
+          echo ""
+          
+          echo "5. FILES CREATED:"
+          ls -la *.log $IMAGE_NAME 2>/dev/null || echo "Some log files missing"
+          echo "========================="
+
+      - name: Boot Success Analysis
+        run: |
+          echo "=== BOOT SUCCESS ANALYSIS ==="
+          
+          # Check if any output was generated at all
           if [ ! -f $SERIAL_LOG ] || [ ! -s $SERIAL_LOG ]; then
-            echo "❌ No serial output detected. QEMU may have failed to start."
-            exit 1
+            if [ ! -f $QEMU_LOG ] || [ ! -s $QEMU_LOG ]; then
+              echo "❌ CRITICAL FAILURE: No output from QEMU at all!"
+              echo "This suggests QEMU failed to start or crashed immediately."
+              exit 1
+            else
+              echo "❌ No serial output but QEMU debug log exists."
+              echo "This suggests boot image didn't produce serial output."
+            fi
           fi
           
-          if grep -qi "Kernel initialized successfully\|Kernel Fully Initialized\|=== Kernel Fully Initialized ===" $SERIAL_LOG; then
-            echo "✅ SUCCESS: Kernel initialized successfully!"
-          elif grep -qi "Enhanced Holographic Kernel Starting\|Holographic Kernel Starting" $SERIAL_LOG; then
-            echo "⚠️  PARTIAL: Kernel started but may not have completed initialization"
-            tail -20 $SERIAL_LOG
-          elif grep -qi "Protected Mode Test: PASSED" $SERIAL_LOG; then
-            echo "⚠️  PARTIAL: Protected mode OK but kernel initialization incomplete"
-            tail -20 $SERIAL_LOG
-          else
-            echo "❌ FAILURE: No recognizable boot messages detected."
-            echo "Full output:"
-            cat $SERIAL_LOG
-            exit 1
+          # Enhanced pattern matching for boot success
+          if [ -f $SERIAL_LOG ] && [ -s $SERIAL_LOG ]; then
+            echo "Checking for success patterns in serial output..."
+            
+            if grep -qi "Kernel initialized successfully\|Kernel Fully Initialized\|=== Kernel Fully Initialized ===" $SERIAL_LOG; then
+              echo "✅ SUCCESS: Kernel initialized successfully!"
+            elif grep -qi "Enhanced Holographic Kernel Starting\|Holographic Kernel Starting" $SERIAL_LOG; then
+              echo "⚠️  PARTIAL: Kernel started but may not have completed initialization"
+              echo "Last 20 lines of serial output:"
+              tail -20 $SERIAL_LOG
+            elif grep -qi "Protected Mode Test: PASSED\|protected mode" $SERIAL_LOG; then
+              echo "⚠️  PARTIAL: Protected mode achieved but kernel initialization incomplete"
+              echo "Serial output:"
+              cat $SERIAL_LOG
+            elif grep -qi "boot\|load\|start" $SERIAL_LOG; then
+              echo "⚠️  PARTIAL: Some boot activity detected"
+              echo "Full serial output:"
+              cat $SERIAL_LOG
+            else
+              echo "❌ FAILURE: No recognizable boot messages in serial output."
+              echo "Serial output contents:"
+              cat $SERIAL_LOG
+            fi
           fi
+          
+          # Check QEMU debug log for additional clues
+          if [ -f $QEMU_LOG ] && [ -s $QEMU_LOG ]; then
+            echo ""
+            echo "Checking QEMU debug log for boot clues..."
+            if grep -qi "triple fault\|exception\|fault\|error" $QEMU_LOG; then
+              echo "⚠️  Found potential errors in QEMU debug log:"
+              grep -i "triple fault\|exception\|fault\|error" $QEMU_LOG | head -10
+            fi
+            
+            if grep -qi "cpu reset\|reset" $QEMU_LOG; then
+              echo "⚠️  CPU reset detected in debug log"
+            fi
+          fi
+          
+          echo "========================="
 
-      - name: Upload Artifacts
+      - name: Upload Debug Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-and-boot-artifacts
+          name: debug-boot-artifacts
           path: |
             $IMAGE_NAME
             $SERIAL_LOG
+            $QEMU_LOG
+            $MONITOR_LOG
+            qemu_stderr.log
+            monitor_commands.txt
+            packages.txt
             *.bin
             *.elf
             Makefile
@@ -138,3 +320,20 @@ jobs:
             holographic_kernel.c
             linker.ld
           if-no-files-found: warn
+
+      - name: Final Summary
+        if: always()
+        run: |
+          echo "=== FINAL DEBUG SUMMARY ==="
+          echo "Workflow completed. Key files created:"
+          ls -la *.log $IMAGE_NAME 2>/dev/null || true
+          echo ""
+          echo "If this workflow failed, check the following in order:"
+          echo "1. Build artifacts (Makefile, source files)"
+          echo "2. QEMU stderr output for startup errors"
+          echo "3. QEMU debug log for CPU/memory issues"
+          echo "4. Serial log for boot sequence"
+          echo "5. Boot image analysis (hex dump, file type)"
+          echo ""
+          echo "All files have been uploaded as artifacts for detailed analysis."
+          echo "========================="
