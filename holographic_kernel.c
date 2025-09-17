@@ -24,7 +24,8 @@ typedef unsigned int    uint32_t;
 #define SERIAL_STATUS 0x3FD
 #define SERIAL_DATA 0x3F8
 
-// Entity typestypedef enum {
+// Entity types - Fixed syntax error
+typedef enum {
     ENTITY_CPU = 0,
     ENTITY_MEMORY = 1,
     ENTITY_DEVICE = 2,
@@ -83,13 +84,6 @@ struct HolographicSystem {
 struct Entity core_entities[ENTITY_COUNT];
 struct HardwareInfo hw_info;
 
-// Check if we're in protected mode
-uint32_t check_protected_mode() {
-    uint32_t cr0;
-    __asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
-    return cr0 & 0x1;
-}
-
 //---Function Prototypes---
 void print_char(char c, uint8_t color);
 void print(const char* str);
@@ -106,7 +100,8 @@ void verify_holographic_memory();
 void probe_hardware();
 void set_memory_value(uint32_t address, uint8_t value);
 uint8_t get_memory_value(uint32_t address);
-uint32_t strlen(const char* str); // Prototype for strlen
+uint32_t strlen(const char* str);
+uint32_t check_protected_mode();
 
 //---Serial Functions---
 static inline uint8_t inb(uint16_t port) {
@@ -205,6 +200,13 @@ uint32_t strlen(const char* str) {
     return len;
 }
 
+// Check if we're in protected mode
+uint32_t check_protected_mode() {
+    uint32_t cr0;
+    __asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
+    return cr0 & 0x1;
+}
+
 //---Kernel starting point---
 void kmain() {
     // Clear screen first
@@ -219,7 +221,7 @@ void kmain() {
     serial_print("=== Kernel Starting ===\n");
 
     // Check protected mode with the correct test signature
-    uint32_t test_value = *(uint32_t*)TEST_MEMORY_LOCATION;
+    uint32_t test_value = *(volatile uint32_t*)TEST_MEMORY_LOCATION;
     if (test_value == 0x12345678) {
         print_debug("Protected Mode Test: PASSED");
     } else {
@@ -241,45 +243,35 @@ void kmain() {
         }
     }
     print_debug("Protected mode check passed");
-    serial_print("Protected mode check passed\n");
 
     print("=== Enhanced Holographic Kernel Starting ===\n");
     serial_print("=== Enhanced Holographic Kernel Starting ===\n");
 
     // Initialize holographic memory system
     print_debug("Initializing high-dimensional memory system...");
-    serial_print("Initializing high-dimensional memory system...\n");
     initialize_holographic_memory();
     print_debug("Holographic memory initialized");
-    serial_print("Holographic memory initialized\n");
 
     // Initialize entities
     print_debug("Initializing core entities...");
-    serial_print("Initializing core entities...\n");
     initialize_core_entities();
     print_debug("Core entities initialized");
-    serial_print("Core entities initialized\n");
 
     // Test holographic memory
     print_debug("Verifying holographic memory...");
-    serial_print("Verifying holographic memory...\n");
     verify_holographic_memory();
     print_debug("Holographic memory verified");
-    serial_print("Holographic memory verified\n");
 
     // Hardware probing
     print_debug("Probing hardware...");
-    serial_print("Probing hardware...\n");
     probe_hardware();
     print_debug("Hardware probing completed");
-    serial_print("Hardware probing completed\n");
 
     print("=== Kernel Fully Initialized ===\n");
     serial_print("=== Kernel Fully Initialized ===\n");
     print("System entering holographic idle state...\n");
     serial_print("System entering holographic idle state...\n");
     print_debug("Entering idle state");
-    serial_print("Entering idle state\n");
 
     // Idle loop
     while (1) {
@@ -304,14 +296,18 @@ HolographicVector create_holographic_vector(const void* input, uint32_t size) {
     vector.hash_signature = hash_data(input, size);
     vector.valid = 1;
     vector.active_dimensions = 0;
+    
+    // Initialize all data elements to 0
+    for (int i = 0; i < HOLOGRAPHIC_DIMENSIONS; i++) {
+        vector.data[i] = 0.0f;
+    }
+    
     uint32_t seed = vector.hash_signature;
     for (int i = 0; i < HOLOGRAPHIC_DIMENSIONS; i++) {
         seed = (seed * 1103515245 + 12345) & 0x7fffffff;
         if ((seed % 10) == 0) {
             vector.data[i] = ((float)((seed % 2000) - 1000)) / 1000.0f;
             vector.active_dimensions++;
-        } else {
-            vector.data[i] = 0.0f;
         }
     }
     return vector;
@@ -332,9 +328,9 @@ void encode_holographic_memory(HolographicVector* input, HolographicVector* outp
 }
 
 HolographicVector* retrieve_holographic_memory(uint32_t hash) {
-    // Fixed signed/unsigned comparison
     for (uint32_t i = 0; i < holo_system.memory_count; i++) {
-        if (holo_system.memory_pool[i].valid && holo_system.memory_pool[i].input_pattern.hash_signature == hash) {
+        if (holo_system.memory_pool[i].valid && 
+            holo_system.memory_pool[i].input_pattern.hash_signature == hash) {
             return &holo_system.memory_pool[i].output_pattern;
         }
     }
@@ -463,11 +459,11 @@ void probe_hardware() {
 
 //---Memory Management Functions---
 void set_memory_value(uint32_t address, uint8_t value) {
-    uint8_t *ptr = (uint8_t *)address;
+    volatile uint8_t *ptr = (volatile uint8_t *)address;
     *ptr = value;
 }
 
 uint8_t get_memory_value(uint32_t address) {
-    uint8_t *ptr = (uint8_t *)address;
+    volatile uint8_t *ptr = (volatile uint8_t *)address;
     return *ptr;
 }
