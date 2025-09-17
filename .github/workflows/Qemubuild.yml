@@ -46,11 +46,12 @@ jobs:
             sudo apt-get update -y
             sudo apt-get -f install -y
             sudo apt-get install -y build-essential nasm qemu-system-i386 gcc-multilib g++-multilib \
-              hexdump file strace gdb qemu-utils
+              util-linux file strace gdb qemu-utils binutils
           else
             echo "✅ APT dependencies found in cache."
-            # Install debug tools even if cache hit
-            sudo apt-get install -y hexdump file strace gdb qemu-utils 2>/dev/null || true
+            # Install debug tools even if cache hit (most should already be available)
+            sudo apt-get update -y
+            sudo apt-get install -y util-linux file strace gdb qemu-utils binutils 2>/dev/null || true
           fi
 
       - name: System Information
@@ -70,9 +71,10 @@ jobs:
           which objcopy && objcopy --version | head -1
           which nasm && nasm -v
           which qemu-system-i386 && qemu-system-i386 --version | head -1
-          which hexdump && hexdump --version 2>/dev/null || echo "hexdump available (no version flag)"
+          echo "hexdump available: $(which hexdump 2>/dev/null && echo 'YES' || echo 'NO - using od instead')"
           which file && file --version | head -1
           which qemu-img && qemu-img --version | head -1
+          which objdump && objdump --version | head -1
           echo "========================="
 
       - name: Build Kernel Image (Debug Mode)
@@ -120,10 +122,18 @@ jobs:
           file $IMAGE_NAME
           
           echo "First 512 bytes (boot sector) in hex:"
-          hexdump -C $IMAGE_NAME | head -32
+          if command -v hexdump >/dev/null 2>&1; then
+            hexdump -C $IMAGE_NAME | head -32
+          else
+            od -t x1 -A x $IMAGE_NAME | head -32
+          fi
           
           echo "Boot signature check (last 2 bytes of first sector should be 55 AA):"
-          dd if=$IMAGE_NAME bs=1 skip=510 count=2 2>/dev/null | hexdump -C
+          if command -v hexdump >/dev/null 2>&1; then
+            dd if=$IMAGE_NAME bs=1 skip=510 count=2 2>/dev/null | hexdump -C
+          else
+            dd if=$IMAGE_NAME bs=1 skip=510 count=2 2>/dev/null | od -t x1
+          fi
           
           echo "Image size and structure:"
           ls -la $IMAGE_NAME
