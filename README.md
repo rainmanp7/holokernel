@@ -1,4 +1,4 @@
-# HoloKernel
+# HoloKernel QEMU Emulator
 
 A next-generation operating system kernel featuring holographic memory management and advanced entity-based architecture.
 
